@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2018 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -64,9 +64,11 @@ import fr.cnes.regards.framework.modules.plugins.domain.PluginConfiguration;
 import fr.cnes.regards.framework.modules.plugins.service.IPluginService;
 import fr.cnes.regards.framework.multitenant.IRuntimeTenantResolver;
 import fr.cnes.regards.framework.notification.NotificationLevel;
+import fr.cnes.regards.framework.notification.client.INotificationClient;
 import fr.cnes.regards.framework.security.role.DefaultRole;
 import fr.cnes.regards.framework.utils.RsRuntimeException;
 import fr.cnes.regards.framework.utils.file.ChecksumUtils;
+import fr.cnes.regards.framework.utils.plugins.exception.NotAvailablePluginConfigurationException;
 import fr.cnes.regards.modules.acquisition.dao.AcquisitionProcessingChainSpecifications;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionFileInfoRepository;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionFileRepository;
@@ -86,7 +88,6 @@ import fr.cnes.regards.modules.acquisition.service.job.ProductAcquisitionJob;
 import fr.cnes.regards.modules.acquisition.service.job.StopChainThread;
 import fr.cnes.regards.modules.ingest.domain.entity.IngestProcessingChain;
 import fr.cnes.regards.modules.ingest.domain.entity.SIPState;
-import fr.cnes.regards.modules.notification.client.INotificationClient;
 import fr.cnes.regards.modules.templates.service.ITemplateService;
 import freemarker.template.TemplateException;
 
@@ -578,7 +579,13 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         while (fileInfoIter.hasNext() && !Thread.currentThread().isInterrupted()) {
             AcquisitionFileInfo fileInfo = fileInfoIter.next();
             // Get plugin instance
-            IScanPlugin scanPlugin = pluginService.getPlugin(fileInfo.getScanPlugin().getId());
+            IScanPlugin scanPlugin;
+            try {
+                scanPlugin = pluginService.getPlugin(fileInfo.getScanPlugin().getId());
+            } catch (NotAvailablePluginConfigurationException e1) {
+                LOGGER.error("Unable to run files scan as plugin is disabled");
+                throw new ModuleException(e1.getMessage(), e1);
+            }
 
             // Clone scanning date for duplicate prevention
             Optional<OffsetDateTime> scanningDate = Optional.empty();
@@ -698,7 +705,7 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
 
     @Override
     public void manageRegisteredFiles(AcquisitionProcessingChain processingChain) throws ModuleException {
-        while (!Thread.currentThread().isInterrupted() && self.manageNewFilesByPage(processingChain)) {
+        while (!Thread.currentThread().isInterrupted() && self.manageRegisteredFilesByPage(processingChain)) {
             // Works as long as there is at least one page left
         }
         // Just trace interruption
@@ -709,7 +716,7 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
 
     @MultitenantTransactional(propagation = Propagation.REQUIRES_NEW)
     @Override
-    public boolean manageNewFilesByPage(AcquisitionProcessingChain processingChain) throws ModuleException {
+    public boolean manageRegisteredFilesByPage(AcquisitionProcessingChain processingChain) throws ModuleException {
 
         // - Retrieve first page of new registered files
         Page<AcquisitionFile> page = acqFileRepository
@@ -721,7 +728,12 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         long startTime = System.currentTimeMillis();
 
         // Get validation plugin
-        IValidationPlugin validationPlugin = pluginService.getPlugin(processingChain.getValidationPluginConf().getId());
+        IValidationPlugin validationPlugin;
+        try {
+            validationPlugin = pluginService.getPlugin(processingChain.getValidationPluginConf().getId());
+        } catch (NotAvailablePluginConfigurationException e1) {
+            throw new ModuleException("Unable to run disabled acquisition chain.", e1);
+        }
         List<AcquisitionFile> validFiles = new ArrayList<>();
         List<AcquisitionFile> invalidFiles = new ArrayList<>();
         for (AcquisitionFile inProgressFile : page.getContent()) {
@@ -755,7 +767,7 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         LOGGER.debug("Validation of {} file(s) finished with {} valid and {} invalid.", page.getNumberOfElements(),
                      validFiles.size(), page.getNumberOfElements() - validFiles.size());
 
-        // Build and schedule products
+        // Build and schedule products, for a subset of the current file page
         Set<Product> products = productService.linkAcquisitionFilesToProducts(processingChain, validFiles);
 
         if (LOGGER.isDebugEnabled()) {
