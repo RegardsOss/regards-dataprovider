@@ -92,18 +92,12 @@ public interface IAcquisitionProcessingService {
 
     /**
      * Patch an existing processing chain with new values for active and state
-     *
-     * @param chainId
-     * @param payload
-     * @return
      */
     AcquisitionProcessingChain patchStateAndMode(Long chainId, UpdateAcquisitionProcessingChain payload)
             throws ModuleException;
 
     /**
      * Patch several existing processing chain with provided values for active and state
-     * @param payload
-     * @return
      */
     List<AcquisitionProcessingChain> patchChainsStateAndMode(UpdateAcquisitionProcessingChains payload)
             throws ModuleException;
@@ -136,7 +130,7 @@ public interface IAcquisitionProcessingService {
      * Start a chain manually
      * @param processingChainId identifier of the chain to start
      * @param session optional, replace the name of the acquisition session
-     * @param onlyErrors, launch session only to retry generation errors.
+     * @param onlyErrors launch session only to retry generation errors.
      * @return started processing chain
      * @throws ModuleException if error occurs!
      */
@@ -160,7 +154,7 @@ public interface IAcquisitionProcessingService {
 
     /**
      * Stop a chain and clean all inconsistencies after all jobs are aborted
-     * @param processingChainId identifier of the chain to stop
+     * @param processingChainId identifier of the chain to stop     * @return
      * @return processing chain
      * @throws ModuleException if error occurs!
      */
@@ -210,7 +204,6 @@ public interface IAcquisitionProcessingService {
      * @param scanningDate
      * @param session
      * @param sessionOwner
-     * @return
      * @throws ModuleException
      */
     public long registerFiles(Iterator<Path> filePathsIt, AcquisitionFileInfo fileInfo,
@@ -221,10 +214,12 @@ public interface IAcquisitionProcessingService {
      * @param filePath path of the file to register
      * @param info related file info
      * @param scanningDate reference date used to launch scan plugin
+     * @param sessionOwner session owner
+     * @param session last active session
      * @return true if really registered
      */
-    boolean registerFile(Path filePath, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate)
-            throws ModuleException;
+    boolean registerFile(Path filePath, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate,
+            String sessionOwner, String session) throws ModuleException;
 
     /**
      * Manage new registered file : prepare or fulfill products and schedule SIP generation as soon as possible

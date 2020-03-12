@@ -36,6 +36,7 @@ import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
 import javax.persistence.SequenceGenerator;
 import javax.persistence.Table;
+import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 
 import org.hibernate.annotations.Type;
@@ -90,6 +91,17 @@ public class AcquisitionFile {
     @JoinColumn(name = "product_id", foreignKey = @ForeignKey(name = "fk_acq_file_id"), updatable = false)
     private Product product;
 
+    @NotBlank(message = "Session owner is required")
+    @Column(name = "session_owner", length = 64, nullable = false)
+    private String sessionOwner;
+
+    /**
+     * The session name that create the current product
+     */
+    @NotBlank(message = "Session is required")
+    @Column(name = "session", length = 128, nullable = false)
+    private String session;
+
     /**
      * Acquisition date of the data file
      */
@@ -126,6 +138,22 @@ public class AcquisitionFile {
 
     public void setProduct(Product product) {
         this.product = product;
+    }
+
+    public String getSessionOwner() {
+        return sessionOwner;
+    }
+
+    public void setSessionOwner(String sessionOwner) {
+        this.sessionOwner = sessionOwner;
+    }
+
+    public String getSession() {
+        return session;
+    }
+
+    public void setSession(String session) {
+        this.session = session;
     }
 
     public OffsetDateTime getAcqDate() {

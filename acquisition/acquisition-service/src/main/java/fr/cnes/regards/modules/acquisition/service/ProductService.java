@@ -427,7 +427,7 @@ public class ProductService implements IProductService {
             //                COMPLETED : If product is complete (without optional)
             //                FINISHED  : If product is complete (with optional included)
             //                UPDATED   : If product was complete before the new file acquired.
-            fulfillProduct(productNewValidFiles, currentProduct);
+            fulfillProduct(productNewValidFiles, currentProduct, changingStateProbe);
 
             // Store for scheduling
             if ((currentProduct.getSipState() == ProductSIPState.NOT_SCHEDULED)
@@ -439,6 +439,7 @@ public class ProductService implements IProductService {
             changingStateProbe.addUpdatedProduct(currentProduct);
             // Notify about the product state change
             sessionNotifier.notifyChangeProductState(changingStateProbe);
+            sessionNotifier.notifyFileChangeSession(changingStateProbe);
         }
 
         // Schedule SIP generation
@@ -466,9 +467,24 @@ public class ProductService implements IProductService {
      *  </ul>
      *  @param validFiles new files acquired for the product to handle
      *  @param currentProduct product to handle
+     *  @param probe to help synchronizing session counters
      */
-    private Product fulfillProduct(Collection<AcquisitionFile> validFiles, Product currentProduct) {
+    private Product fulfillProduct(Collection<AcquisitionFile> validFiles, Product currentProduct,
+            SessionChangingStateProbe changingStateProbe) {
         for (AcquisitionFile validFile : validFiles) {
+
+            // File and product session owner and session must be the same! Synchronize them!
+            String productSessionOwner = currentProduct.getProcessingChain().getLabel();
+            String productSession = currentProduct.getSession();
+            for (AcquisitionFile f : validFiles) {
+                if (!(productSessionOwner.equals(f.getSessionOwner()) && productSession.equals(f.getSession()))) {
+                    changingStateProbe.addFileSessionSwitch(f.getSessionOwner(), f.getSession());
+                }
+                // Synchronize with current product
+                f.setSessionOwner(productSessionOwner);
+                f.setSession(productSession);
+            }
+
             // Mark old file as superseded
             for (AcquisitionFile existing : currentProduct.getAcquisitionFiles()) {
                 if (existing.getFileInfo().equals(validFile.getFileInfo())) {
@@ -489,6 +505,7 @@ public class ProductService implements IProductService {
         // valid product
         currentProduct.setSipState(ProductSIPState.NOT_SCHEDULED); // Required to be re-integrated in SIP workflow
         currentProduct.addAcquisitionFiles(validFiles);
+
         computeProductStateWhenNewFile(currentProduct);
         return save(currentProduct);
     }
