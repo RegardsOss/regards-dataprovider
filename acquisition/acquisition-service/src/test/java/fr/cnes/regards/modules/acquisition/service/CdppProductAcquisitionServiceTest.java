@@ -378,4 +378,27 @@ public class CdppProductAcquisitionServiceTest extends AbstractMultitenantServic
 
         notificationClient.debugSession();
     }
+
+    /**
+     * First, we scan files in a session ... and we manage them in another!
+     */
+    @Test
+    public void twoStepAcquisitionTest() throws IOException, ModuleException {
+        // Prepare data
+        FileUtils.copyDirectory(SRC_DATA_PATH.toFile(), TARGET_DATA_PATH.toFile(), false);
+        FileUtils.copyDirectory(SRC_BROWSE_PATH.toFile(), TARGET_BROWSE_PATH.toFile(), false);
+
+        AcquisitionProcessingChain processingChain = createProcessingChain();
+
+        // Just scan in first session
+        String session1 = "session1";
+        processingService.scanAndRegisterFiles(processingChain, session1);
+
+        // Do all stuff in second session
+        String session2 = "session2";
+        doAcquire(processingChain, session2, true);
+
+        Assert.assertTrue(assertSession(processingChain.getLabel(), session1, 0L, null, null, null));
+        Assert.assertTrue(assertSession(processingChain.getLabel(), session2, 3L, 0L, null, 1L));
+    }
 }

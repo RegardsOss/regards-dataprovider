@@ -735,7 +735,7 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         while (nextPath && (countRegistered < limit) && !Thread.currentThread().isInterrupted()) {
             try {
                 Path filePath = filePaths.next();
-                if (registerFile(filePath, info, scanningDate)) {
+                if (registerFile(filePath, info, scanningDate, sessionOwner, session)) {
                     countRegistered++;
                     OffsetDateTime lmd;
                     try {
@@ -758,7 +758,8 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
     }
 
     @Override
-    public boolean registerFile(Path filePath, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate) {
+    public boolean registerFile(Path filePath, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate,
+            String sessionOwner, String session) {
         OffsetDateTime lmd;
         try {
             // If new file to register date is exactly the same as the last scanning date, check if file is not already acquired.
@@ -773,6 +774,8 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
                 scannedFile.setFileInfo(info);
                 scannedFile.setFilePath(filePath);
                 scannedFile.setState(AcquisitionFileState.IN_PROGRESS);
+                scannedFile.setSessionOwner(sessionOwner);
+                scannedFile.setSession(session);
                 acqFileRepository.save(scannedFile);
                 return true;
             }

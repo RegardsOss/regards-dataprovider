@@ -109,7 +109,7 @@ public class AcquisitionProcessingServiceNotxTest extends AbstractMultitenantSer
         Path searchDir = Paths.get("src", "test", "resources", "data", "plugins", "scan");
         // Register file
         Path first = searchDir.resolve("CSSI_PRODUCT_01.md");
-        Assert.assertTrue(processingService.registerFile(first, fileInfo, Optional.empty()));
+        Assert.assertTrue(processingService.registerFile(first, fileInfo, Optional.empty(), "sessionOwner", "session"));
 
         // Register same file with its lmd
         OffsetDateTime lmd = OffsetDateTime.ofInstant(Files.getLastModifiedTime(first).toInstant(), ZoneOffset.UTC);
