@@ -195,6 +195,8 @@ public class AcquisitionFileServiceTest extends AbstractMultitenantServiceTest {
             file.setFilePath(Paths.get("/chain2/file" + idx));
             file.setProduct(product);
             file.setState(fileState);
+            file.setSessionOwner(this.getClass().getSimpleName());
+            file.setSession(this.getClass().getSimpleName());
             fileService.save(file);
             idx++;
         }
@@ -208,6 +210,8 @@ public class AcquisitionFileServiceTest extends AbstractMultitenantServiceTest {
             file.setFilePath(Paths.get("/chain2/file" + idx));
             file.setProduct(product);
             file.setState(fileState);
+            file.setSessionOwner(this.getClass().getSimpleName());
+            file.setSession(this.getClass().getSimpleName());
             fileService.save(file);
             idx++;
         }
