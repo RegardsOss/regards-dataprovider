@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -18,10 +18,13 @@
  */
 package fr.cnes.regards.modules.acquisition.rest;
 
+import java.util.List;
+import java.util.Optional;
+
 import javax.validation.Valid;
 
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -53,9 +56,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import antlr.collections.List;
 import fr.cnes.regards.framework.hateoas.IResourceController;
 import fr.cnes.regards.framework.hateoas.IResourceService;
 import fr.cnes.regards.framework.hateoas.LinkRels;
@@ -65,6 +68,8 @@ import fr.cnes.regards.framework.security.annotation.ResourceAccess;
 import fr.cnes.regards.framework.security.role.DefaultRole;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChainMode;
+import fr.cnes.regards.modules.acquisition.domain.payload.UpdateAcquisitionProcessingChain;
+import fr.cnes.regards.modules.acquisition.domain.payload.UpdateAcquisitionProcessingChains;
 import fr.cnes.regards.modules.acquisition.service.IAcquisitionProcessingService;
 
 /**
@@ -83,7 +88,11 @@ public class AcquisitionProcessingChainController implements IResourceController
 
     public static final String START_MANUAL_CHAIN_PATH = CHAIN_PATH + "/start";
 
+    public static final String RELAUNCH_ERRORS_PATH = "/{chainName}/{session}/relaunch";
+
     public static final String STOP_CHAIN_PATH = CHAIN_PATH + "/stop";
+
+    public static final String CHAIN_SESSION_PRODUCTS_PATH = "/{chainName}/products";
 
     @Autowired
     private IAcquisitionProcessingService processingService;
@@ -102,7 +111,7 @@ public class AcquisitionProcessingChainController implements IResourceController
      * @throws ModuleException if error occurs!
      */
     @RequestMapping(method = RequestMethod.GET)
-    @ResourceAccess(description = "List all the chains", role = DefaultRole.PROJECT_ADMIN)
+    @ResourceAccess(description = "List all the chains", role = DefaultRole.EXPLOIT)
     public ResponseEntity<PagedResources<Resource<AcquisitionProcessingChain>>> retrieveAll(
             @PageableDefault(sort = "id", direction = Sort.Direction.ASC) Pageable pageable,
             PagedResourcesAssembler<AcquisitionProcessingChain> assembler) throws ModuleException {
@@ -117,10 +126,18 @@ public class AcquisitionProcessingChainController implements IResourceController
      * @throws ModuleException if error occurs!
      */
     @RequestMapping(method = RequestMethod.POST)
-    @ResourceAccess(description = "Add a chain", role = DefaultRole.PROJECT_ADMIN)
+    @ResourceAccess(description = "Add a chain", role = DefaultRole.ADMIN)
     public ResponseEntity<Resource<AcquisitionProcessingChain>> create(
             @Valid @RequestBody AcquisitionProcessingChain processingChain) throws ModuleException {
         return new ResponseEntity<>(toResource(processingService.createChain(processingChain)), HttpStatus.CREATED);
+    }
+
+    @RequestMapping(method = RequestMethod.PATCH)
+    @ResourceAccess(description = "Patch several acquisition chains with new state and mode",
+            role = DefaultRole.EXPLOIT)
+    public ResponseEntity<List<Resource<AcquisitionProcessingChain>>> updateChainsStateAndMode(
+            @Valid @RequestBody UpdateAcquisitionProcessingChains payload) throws ModuleException {
+        return new ResponseEntity<>(toResources(processingService.patchChainsStateAndMode(payload)), HttpStatus.OK);
     }
 
     /**
@@ -130,7 +147,7 @@ public class AcquisitionProcessingChainController implements IResourceController
      * @throws ModuleException if error occurs!
      */
     @RequestMapping(method = RequestMethod.GET, value = CHAIN_PATH)
-    @ResourceAccess(description = "Get a chain", role = DefaultRole.PROJECT_ADMIN)
+    @ResourceAccess(description = "Get a chain", role = DefaultRole.EXPLOIT)
     public ResponseEntity<Resource<AcquisitionProcessingChain>> get(@PathVariable Long chainId) throws ModuleException {
         return ResponseEntity.ok(toResource(processingService.getChain(chainId)));
     }
@@ -143,31 +160,58 @@ public class AcquisitionProcessingChainController implements IResourceController
      * @throws ModuleException if error occurs!
      */
     @RequestMapping(method = RequestMethod.PUT, value = CHAIN_PATH)
-    @ResourceAccess(description = "Update a chain", role = DefaultRole.PROJECT_ADMIN)
+    @ResourceAccess(description = "Update a chain", role = DefaultRole.ADMIN)
     public ResponseEntity<Resource<AcquisitionProcessingChain>> update(@PathVariable Long chainId,
             @Valid @RequestBody AcquisitionProcessingChain processingChain) throws ModuleException {
         return ResponseEntity.ok(toResource(processingService.updateChain(processingChain)));
     }
 
+    @RequestMapping(method = RequestMethod.PATCH, value = CHAIN_PATH)
+    @ResourceAccess(description = "Patch the state and the mode of the chain", role = DefaultRole.EXPLOIT)
+    public ResponseEntity<Resource<AcquisitionProcessingChain>> updateStateAndMode(@PathVariable Long chainId,
+            @Valid @RequestBody UpdateAcquisitionProcessingChain payload) throws ModuleException {
+        return ResponseEntity.ok(toResource(processingService.patchStateAndMode(chainId, payload)));
+    }
+
     @RequestMapping(method = RequestMethod.DELETE, value = CHAIN_PATH)
-    @ResourceAccess(description = "Delete a chain", role = DefaultRole.PROJECT_ADMIN)
+    @ResourceAccess(description = "Delete a chain", role = DefaultRole.ADMIN)
     public ResponseEntity<Void> delete(@PathVariable Long chainId) throws ModuleException {
         processingService.deleteChain(chainId);
         return ResponseEntity.noContent().build();
     }
 
     @RequestMapping(method = RequestMethod.GET, value = START_MANUAL_CHAIN_PATH)
-    @ResourceAccess(description = "Start a manual chain", role = DefaultRole.PROJECT_ADMIN)
-    public ResponseEntity<Resource<AcquisitionProcessingChain>> startManualChain(@PathVariable Long chainId)
-            throws ModuleException {
-        return ResponseEntity.ok(toResource(processingService.startManualChain(chainId)));
+    @ResourceAccess(description = "Start a manual chain", role = DefaultRole.EXPLOIT)
+    public ResponseEntity<Resource<AcquisitionProcessingChain>> startManualChain(@PathVariable Long chainId,
+            @RequestParam(name = "session", required = false) Optional<String> session) throws ModuleException {
+        return ResponseEntity.ok(toResource(processingService.startManualChain(chainId, session, false)));
     }
 
     @RequestMapping(method = RequestMethod.GET, value = STOP_CHAIN_PATH)
-    @ResourceAccess(description = "Stop a chain", role = DefaultRole.PROJECT_ADMIN)
+    @ResourceAccess(description = "Stop a chain", role = DefaultRole.EXPLOIT)
     public ResponseEntity<Resource<AcquisitionProcessingChain>> stopChain(@PathVariable Long chainId)
             throws ModuleException {
         return ResponseEntity.ok(toResource(processingService.stopAndCleanChain(chainId)));
+    }
+
+    @RequestMapping(method = RequestMethod.GET, value = RELAUNCH_ERRORS_PATH)
+    @ResourceAccess(description = "Relaunch errors on acquisition chain", role = DefaultRole.EXPLOIT)
+    public ResponseEntity<Void> relaunchErrors(@PathVariable String chainName, @PathVariable String session)
+            throws ModuleException {
+        processingService.relaunchErrors(chainName, session);
+        return new ResponseEntity<Void>(HttpStatus.OK);
+    }
+
+    @RequestMapping(method = RequestMethod.DELETE, value = CHAIN_SESSION_PRODUCTS_PATH)
+    @ResourceAccess(description = "Delete products for a given acquisition chain", role = DefaultRole.ADMIN)
+    public ResponseEntity<Void> deleteProducts(@PathVariable String chainName,
+            @RequestParam(name = "session", required = false) String session) throws ModuleException {
+        if (session != null) {
+            processingService.deleteSessionProducts(chainName, session);
+        } else {
+            processingService.deleteProducts(chainName);
+        }
+        return new ResponseEntity<Void>(HttpStatus.OK);
     }
 
     @Override
@@ -184,7 +228,8 @@ public class AcquisitionProcessingChainController implements IResourceController
         if (AcquisitionProcessingChainMode.MANUAL.equals(element.getMode()) && !element.isLocked()
                 && element.isActive()) {
             resourceService.addLink(resource, this.getClass(), "startManualChain", "start",
-                                    MethodParamFactory.build(Long.class, element.getId()));
+                                    MethodParamFactory.build(Long.class, element.getId()),
+                                    MethodParamFactory.build(Optional.class));
         }
         if (!element.isActive()) {
             resourceService.addLink(resource, this.getClass(), "delete", LinkRels.DELETE,
@@ -192,6 +237,9 @@ public class AcquisitionProcessingChainController implements IResourceController
         }
         resourceService.addLink(resource, this.getClass(), "stopChain", "stop",
                                 MethodParamFactory.build(Long.class, element.getId()));
+        resourceService.addLink(resource, this.getClass(), "updateStateAndMode", "patch",
+                                MethodParamFactory.build(Long.class, element.getId()),
+                                MethodParamFactory.build(UpdateAcquisitionProcessingChain.class));
         return resource;
     }
 }

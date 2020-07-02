@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -18,8 +18,10 @@
  */
 package fr.cnes.regards.modules.acquisition.dao;
 
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -29,6 +31,7 @@ import org.springframework.stereotype.Repository;
 
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFile;
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFileState;
+import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionFileInfo;
 
 /**
@@ -49,6 +52,8 @@ public interface IAcquisitionFileRepository
      */
     Page<AcquisitionFile> findByStateAndFileInfoOrderByIdAsc(AcquisitionFileState state, AcquisitionFileInfo fileInfo,
             Pageable pageable);
+
+    Optional<AcquisitionFile> findOneByFilePath(Path filePath);
 
     /**
      * Search all acquisition files for the given {@link AcquisitionFileState}
@@ -74,8 +79,8 @@ public interface IAcquisitionFileRepository
     long countByFileInfo(AcquisitionFileInfo fileInfo);
 
     /**
-     * Count number of {@link AcquisitionFile} associated to the given {@link AcquisitionFileInfo} and checksum
+     * @param product
      */
-    long countByFileInfoAndChecksum(AcquisitionFileInfo fileInfo, String checksum);
+    void deleteByProduct(Product product);
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -33,8 +33,8 @@ import fr.cnes.regards.modules.acquisition.domain.AcquisitionFile;
 import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.model.Attribute;
 import fr.cnes.regards.modules.acquisition.plugins.ISIPGenerationPluginWithMetadataToolbox;
-import fr.cnes.regards.modules.ingest.domain.SIP;
-import fr.cnes.regards.modules.ingest.domain.builder.SIPBuilder;
+import fr.cnes.regards.modules.ingest.dto.sip.SIP;
+import fr.cnes.regards.modules.ingest.dto.sip.SIPBuilder;
 
 /**
  * Common SIP generation tools

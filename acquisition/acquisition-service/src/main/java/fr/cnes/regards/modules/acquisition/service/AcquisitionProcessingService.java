@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -19,15 +19,11 @@
 package fr.cnes.regards.modules.acquisition.service;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.channels.ClosedByInterruptException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -36,8 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-
-import javax.persistence.EntityManager;
+import java.util.stream.Stream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +42,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.support.CronSequenceGenerator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.util.MimeTypeUtils;
@@ -61,13 +57,13 @@ import fr.cnes.regards.framework.modules.jobs.domain.JobInfo;
 import fr.cnes.regards.framework.modules.jobs.domain.JobParameter;
 import fr.cnes.regards.framework.modules.jobs.service.IJobInfoService;
 import fr.cnes.regards.framework.modules.plugins.domain.PluginConfiguration;
+import fr.cnes.regards.framework.modules.plugins.domain.parameter.IPluginParam;
 import fr.cnes.regards.framework.modules.plugins.service.IPluginService;
 import fr.cnes.regards.framework.multitenant.IRuntimeTenantResolver;
 import fr.cnes.regards.framework.notification.NotificationLevel;
 import fr.cnes.regards.framework.notification.client.INotificationClient;
 import fr.cnes.regards.framework.security.role.DefaultRole;
 import fr.cnes.regards.framework.utils.RsRuntimeException;
-import fr.cnes.regards.framework.utils.file.ChecksumUtils;
 import fr.cnes.regards.framework.utils.plugins.exception.NotAvailablePluginConfigurationException;
 import fr.cnes.regards.modules.acquisition.dao.AcquisitionProcessingChainSpecifications;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionFileInfoRepository;
@@ -77,17 +73,21 @@ import fr.cnes.regards.modules.acquisition.domain.AcquisitionFile;
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFileState;
 import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.ProductSIPState;
+import fr.cnes.regards.modules.acquisition.domain.ProductsPage;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionFileInfo;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChainMode;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChainMonitor;
+import fr.cnes.regards.modules.acquisition.domain.payload.UpdateAcquisitionProcessingChain;
+import fr.cnes.regards.modules.acquisition.domain.payload.UpdateAcquisitionProcessingChains;
+import fr.cnes.regards.modules.acquisition.plugins.IFluxScanPlugin;
 import fr.cnes.regards.modules.acquisition.plugins.IScanPlugin;
 import fr.cnes.regards.modules.acquisition.plugins.IValidationPlugin;
 import fr.cnes.regards.modules.acquisition.service.job.AcquisitionJobPriority;
 import fr.cnes.regards.modules.acquisition.service.job.ProductAcquisitionJob;
 import fr.cnes.regards.modules.acquisition.service.job.StopChainThread;
-import fr.cnes.regards.modules.ingest.domain.entity.IngestProcessingChain;
-import fr.cnes.regards.modules.ingest.domain.entity.SIPState;
+import fr.cnes.regards.modules.acquisition.service.session.SessionNotifier;
+import fr.cnes.regards.modules.ingest.domain.chain.IngestProcessingChain;
 import fr.cnes.regards.modules.templates.service.ITemplateService;
 import freemarker.template.TemplateException;
 
@@ -100,6 +100,8 @@ import freemarker.template.TemplateException;
 @Service
 @MultitenantTransactional
 public class AcquisitionProcessingService implements IAcquisitionProcessingService {
+
+    private static final int BATCH_SIZE = 1000;
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AcquisitionProcessingService.class);
 
@@ -117,9 +119,6 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
 
     @Autowired
     private IProductService productService;
-
-    @Autowired
-    private IAcquisitionFileService acqFileService;
 
     @Autowired
     private IJobInfoService jobInfoService;
@@ -142,27 +141,16 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
     @Autowired
     private ITemplateService templateService;
 
-    @SuppressWarnings("unused")
     @Autowired
-    private EntityManager entityManager;
-
-    /**
-     * Compute file checksum
-     * @param filePath file path
-     * @param checksumAlgorithm checksum algorithm
-     * @return checksum
-     * @throws IOException if error occurs!
-     * @throws NoSuchAlgorithmException if error occurs!
-     */
-    private static String computeFileChecksum(Path filePath, String checksumAlgorithm)
-            throws IOException, NoSuchAlgorithmException {
-        InputStream inputStream = Files.newInputStream(filePath);
-        return ChecksumUtils.computeHexChecksum(inputStream, checksumAlgorithm);
-    }
+    private SessionNotifier sessionNotifier;
 
     @Override
     public Page<AcquisitionProcessingChain> getAllChains(Pageable pageable) throws ModuleException {
         return acqChainRepository.findAll(pageable);
+    }
+
+    public List<AcquisitionProcessingChain> getChainsByLabel(String label) throws ModuleException {
+        return acqChainRepository.findByLabel(label);
     }
 
     @Override
@@ -174,14 +162,14 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         // Now load all plugin configuration (avoiding JPA graphs or subgraphs!)
         // For file info
         for (AcquisitionFileInfo fileInfo : chain.getFileInfos()) {
-            pluginService.loadPluginConfiguration(fileInfo.getScanPlugin().getId());
+            pluginService.loadPluginConfiguration(fileInfo.getScanPlugin().getBusinessId());
         }
         // And others
-        pluginService.loadPluginConfiguration(chain.getValidationPluginConf().getId());
-        pluginService.loadPluginConfiguration(chain.getProductPluginConf().getId());
-        pluginService.loadPluginConfiguration(chain.getGenerateSipPluginConf().getId());
+        pluginService.loadPluginConfiguration(chain.getValidationPluginConf().getBusinessId());
+        pluginService.loadPluginConfiguration(chain.getProductPluginConf().getBusinessId());
+        pluginService.loadPluginConfiguration(chain.getGenerateSipPluginConf().getBusinessId());
         if (chain.getPostProcessSipPluginConf().isPresent()) {
-            pluginService.loadPluginConfiguration(chain.getPostProcessSipPluginConf().get().getId());
+            pluginService.loadPluginConfiguration(chain.getPostProcessSipPluginConf().get().getBusinessId());
         }
         return chain;
     }
@@ -206,6 +194,18 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         return new PageImpl<>(fullChains, pageable, apcs.getTotalElements());
     }
 
+    private PluginConfiguration createPluginConfiguration(PluginConfiguration pluginConfiguration)
+            throws ModuleException {
+        // Check no identifier. For each new chain, we force plugin configuration creation. A configuration cannot be
+        // reused.
+        if (pluginConfiguration.getId() != null) {
+            throw new EntityInvalidException(
+                    String.format("Plugin configuration %s must not already have an identifier.",
+                                  pluginConfiguration.getLabel()));
+        }
+        return pluginService.savePluginConfiguration(pluginConfiguration);
+    }
+
     @Override
     public AcquisitionProcessingChain createChain(AcquisitionProcessingChain processingChain) throws ModuleException {
 
@@ -221,7 +221,6 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         // Prevent bad values
         processingChain.setLocked(Boolean.FALSE);
         processingChain.setLastActivationDate(null);
-        processingChain.setLastProductAcquisitionJobInfo(null);
 
         // Manage acquisition file info
         for (AcquisitionFileInfo fileInfo : processingChain.getFileInfos()) {
@@ -258,18 +257,6 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         return acqChainRepository.save(processingChain);
     }
 
-    private PluginConfiguration createPluginConfiguration(PluginConfiguration pluginConfiguration)
-            throws ModuleException {
-        // Check no identifier. For each new chain, we force plugin configuration creation. A configuration cannot be
-        // reused.
-        if (pluginConfiguration.getId() != null) {
-            throw new EntityInvalidException(
-                    String.format("Plugin configuration %s must not already have an identifier.",
-                                  pluginConfiguration.getLabel()));
-        }
-        return pluginService.savePluginConfiguration(pluginConfiguration);
-    }
-
     @Override
     public AcquisitionProcessingChain updateChain(AcquisitionProcessingChain processingChain) throws ModuleException {
         // Check already exists
@@ -298,6 +285,15 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
                 // Manage scan plugin conf
                 existing = fileInfoRepository.findOneScanPlugin(fileInfo.getId());
                 confsToRemove.add(updatePluginConfiguration(Optional.of(fileInfo.getScanPlugin()), existing));
+                if (existing.isPresent()) {
+                    PluginConfiguration exConf = existing.get();
+                    for (IPluginParam param : fileInfo.getScanPlugin().getParameters()) {
+                        if (!param.getValue().equals(exConf.getParameterValue(param.getName()))) {
+                            // Conf has changed, so reset the last scanning date
+                            fileInfo.setLastModificationDate(null);
+                        }
+                    }
+                }
             }
 
             // Save file info
@@ -326,11 +322,48 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         // Clean unused plugin configuration after chain update avoiding foreign keys constraints restrictions.
         for (Optional<PluginConfiguration> confToRemove : confsToRemove) {
             if (confToRemove.isPresent()) {
-                pluginService.deletePluginConfiguration(confToRemove.get().getId());
+                pluginService.deletePluginConfiguration(confToRemove.get().getBusinessId());
             }
         }
 
         return processingChain;
+    }
+
+    @Override
+    public AcquisitionProcessingChain patchStateAndMode(Long chainId, UpdateAcquisitionProcessingChain payload)
+            throws ModuleException {
+
+        // Check already exists
+        if (!acqChainRepository.existsChain(chainId)) {
+            throw new EntityNotFoundException(chainId, IngestProcessingChain.class);
+        }
+
+        AcquisitionProcessingChain chain = getChain(chainId);
+        switch (payload.getUpdateType()) {
+            case ALL:
+                chain.setActive(payload.getActive());
+                chain.setMode(payload.getMode());
+                break;
+            case ONLY_MODE:
+                chain.setMode(payload.getMode());
+                break;
+            case ONLY_ACTIVITY:
+                chain.setActive(payload.getActive());
+        }
+        checkProcessingChainMode(chain);
+        chain = updateChain(chain);
+        return chain;
+    }
+
+    @Override
+    public List<AcquisitionProcessingChain> patchChainsStateAndMode(UpdateAcquisitionProcessingChains payload)
+            throws ModuleException {
+        List<AcquisitionProcessingChain> results = new ArrayList<>();
+        for (Long chainId : payload.getChainIds()) {
+            results.add(patchStateAndMode(chainId, UpdateAcquisitionProcessingChain
+                    .build(payload.getActive(), payload.getMode(), payload.getUpdateType())));
+        }
+        return results;
     }
 
     /**
@@ -375,6 +408,11 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
                 && (processingChain.getPeriodicity() == null)) {
             throw new EntityInvalidException("Missing periodicity for automatic acquisition processing chain");
         }
+
+        if ((processingChain.getPeriodicity() != null)
+                && !CronSequenceGenerator.isValidExpression(processingChain.getPeriodicity())) {
+            throw new EntityInvalidException("Cron expression is not valid for processing chain automatic trigger");
+        }
     }
 
     @Override
@@ -405,7 +443,7 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
                         jobInfoService.unlock(product.getLastSIPGenerationJobInfo());
                     }
 
-                    productService.delete(product);
+                    productService.delete(processingChain, product);
                 }
             }
         } while (products.hasNext());
@@ -494,37 +532,29 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         List<AcquisitionProcessingChain> processingChains = acqChainRepository.findAllBootableAutomaticChains();
 
         for (AcquisitionProcessingChain processingChain : processingChains) {
-
             // Check periodicity
-            if ((processingChain.getLastActivationDate() != null) && processingChain.getLastActivationDate()
-                    .plusSeconds(processingChain.getPeriodicity()).isAfter(OffsetDateTime.now())) {
-                LOGGER.debug("Acquisition processing chain \"{}\" will not be started due to periodicity",
+            if (!CronComparator.shouldRun(processingChain.getPeriodicity())) {
+                LOGGER.debug("Acquisition processing chain \"{}\" won't start due to periodicity",
                              processingChain.getLabel());
             } else if (processingChain.isLocked()) {
-                LOGGER.debug("Acquisition processing chain \"{}\" will not be started because still locked (i.e. working)",
+                LOGGER.debug("Acquisition processing chain \"{}\" won't start because it's still locked (i.e. working)",
                              processingChain.getLabel());
             } else {
                 // Schedule job
-                scheduleProductAcquisitionJob(processingChain);
+                scheduleProductAcquisitionJob(processingChain, Optional.empty(), false);
             }
         }
     }
 
     @Override
-    public AcquisitionProcessingChain startManualChain(Long processingChainId) throws ModuleException {
+    public AcquisitionProcessingChain startManualChain(Long processingChainId, Optional<String> session,
+            boolean onlyErrors) throws ModuleException {
 
         // Load chain
         AcquisitionProcessingChain processingChain = getChain(processingChainId);
 
         if (!processingChain.isActive()) {
             String message = String.format("Inactive processing chain \"%s\" cannot be started",
-                                           processingChain.getLabel());
-            LOGGER.error(message);
-            throw new EntityInvalidException(message);
-        }
-
-        if (AcquisitionProcessingChainMode.AUTO.equals(processingChain.getMode())) {
-            String message = String.format("Automatic processing chain \"%s\" cannot be started manuallly",
                                            processingChain.getLabel());
             LOGGER.error(message);
             throw new EntityInvalidException(message);
@@ -537,26 +567,49 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         }
 
         // Schedule job
-        scheduleProductAcquisitionJob(processingChain);
+        scheduleProductAcquisitionJob(processingChain, session, onlyErrors);
 
         return processingChain;
+    }
+
+    @Override
+    public void relaunchErrors(String chainName, String session) throws ModuleException {
+        // Search for chain to relaunch
+        List<AcquisitionProcessingChain> chains = getChainsByLabel(chainName);
+        if (chains.size() == 1) {
+            AcquisitionProcessingChain chain = chains.get(0);
+            startManualChain(chain.getId(), Optional.of(session), true);
+        } else {
+            if (chains.isEmpty()) {
+                throw new ModuleException("Chain %s not found.");
+            } else {
+                throw new ModuleException("Chain label %s is associated to multiple chains.");
+            }
+        }
     }
 
     /**
      * Schedule a product acquisition job for specified processing chain. Only one job can be scheduled.
      * @param processingChain processing chain
+     * @param session user defined session name
      */
-    private void scheduleProductAcquisitionJob(AcquisitionProcessingChain processingChain) {
+    private void scheduleProductAcquisitionJob(AcquisitionProcessingChain processingChain, Optional<String> session,
+            boolean onlyErrors) {
 
         // Mark processing chain as running
         lockChain(processingChain.getId());
         processingChain.setLastActivationDate(OffsetDateTime.now());
         acqChainRepository.save(processingChain);
 
+        // Use either the session name provided by the user either the current date
+        String sessionName = session.orElseGet(() -> OffsetDateTime.now().toString());
+
         LOGGER.debug("Scheduling product acquisition job for processing chain \"{}\"", processingChain.getLabel());
         JobInfo jobInfo = new JobInfo(true);
         jobInfo.setPriority(AcquisitionJobPriority.PRODUCT_ACQUISITION_JOB_PRIORITY.getPriority());
-        jobInfo.setParameters(new JobParameter(ProductAcquisitionJob.CHAIN_PARAMETER_ID, processingChain.getId()));
+        jobInfo.setParameters(new JobParameter(ProductAcquisitionJob.CHAIN_PARAMETER_ID, processingChain.getId()),
+                              new JobParameter(ProductAcquisitionJob.CHAIN_PARAMETER_SESSION, sessionName),
+                              new JobParameter(ProductAcquisitionJob.CHAIN_PARAMETER_ONLY_ERRORS, onlyErrors));
         jobInfo.setClassName(ProductAcquisitionJob.class.getName());
         jobInfo.setOwner(authResolver.getUser());
 
@@ -568,12 +621,12 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         }
         processingChain.setLastProductAcquisitionJobInfo(jobInfo);
         acqChainRepository.save(processingChain);
-
     }
 
     @Override
-    public void scanAndRegisterFiles(AcquisitionProcessingChain processingChain) throws ModuleException {
-
+    @MultitenantTransactional(propagation = Propagation.NOT_SUPPORTED)
+    public void scanAndRegisterFiles(AcquisitionProcessingChain processingChain, String session)
+            throws ModuleException {
         // Launch file scanning for each file information
         Iterator<AcquisitionFileInfo> fileInfoIter = processingChain.getFileInfos().iterator();
         while (fileInfoIter.hasNext() && !Thread.currentThread().isInterrupted()) {
@@ -581,7 +634,7 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
             // Get plugin instance
             IScanPlugin scanPlugin;
             try {
-                scanPlugin = pluginService.getPlugin(fileInfo.getScanPlugin().getId());
+                scanPlugin = pluginService.getPlugin(fileInfo.getScanPlugin().getBusinessId());
             } catch (NotAvailablePluginConfigurationException e1) {
                 LOGGER.error("Unable to run files scan as plugin is disabled");
                 throw new ModuleException(e1.getMessage(), e1);
@@ -594,129 +647,166 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
                         .of(OffsetDateTime.ofInstant(fileInfo.getLastModificationDate().toInstant(), ZoneOffset.UTC));
             }
 
-            // Do scan
-            List<Path> scannedFiles = scanPlugin.scan(scanningDate);
-
-            // Sort list according to last modification date
-            Collections.sort(scannedFiles, (file1, file2) -> {
-                try {
-                    return Files.getLastModifiedTime(file1).compareTo(Files.getLastModifiedTime(file2));
-                } catch (IOException e) {
-                    LOGGER.warn("Cannot read last modification date", e);
-                    return 0;
-                }
-            });
-
-            long startTime = System.currentTimeMillis();
-            int fromIndex = 0;
-            int toIndex = AcquisitionProperties.WORKING_UNIT;
-            int totalCount = 0;
-            while ((toIndex <= scannedFiles.size()) && !Thread.currentThread().isInterrupted()) {
-                long transactionStartTime = System.currentTimeMillis();
-                // Do it in one transaction
-                LOGGER.debug("Trying to register {}/{} of the new file(s) scanned", toIndex, scannedFiles.size());
-                int count = self.registerFiles(scannedFiles.subList(fromIndex, toIndex), fileInfo, scanningDate);
-                totalCount += count;
-                LOGGER.debug("{}/{} new file(s) registered in {} milliseconds", count, toIndex,
-                             System.currentTimeMillis() - transactionStartTime);
-                fromIndex = toIndex;
-                toIndex = toIndex + AcquisitionProperties.WORKING_UNIT;
+            if (scanPlugin instanceof IFluxScanPlugin) {
+                streamAndRegisterFiles(fileInfo, (IFluxScanPlugin) scanPlugin, scanningDate, session,
+                                       processingChain.getLabel());
+            } else {
+                scanAndRegisterFiles(fileInfo, scanPlugin, scanningDate, session, processingChain.getLabel());
             }
-            // Do it in one transaction
-            long transactionStartTime = System.currentTimeMillis();
-            List<Path> remainingFiles = scannedFiles.subList(fromIndex, scannedFiles.size());
-            LOGGER.debug("Trying to register the last {} of the new file(s) scanned", remainingFiles.size());
-            int count = self.registerFiles(remainingFiles, fileInfo, scanningDate);
-            totalCount += count;
-            LOGGER.debug("{}/{} new file(s) registered in {} milliseconds", count, remainingFiles.size(),
-                         System.currentTimeMillis() - transactionStartTime);
-
-            LOGGER.info("{} new file(s) registered in {} milliseconds", totalCount,
-                        System.currentTimeMillis() - startTime);
         }
 
+    }
+
+    private void scanAndRegisterFiles(AcquisitionFileInfo fileInfo, IScanPlugin scanPlugin,
+            Optional<OffsetDateTime> scanningDate, String session, String sessionOwner) throws ModuleException {
+        // Do scan
+        List<Path> scannedFiles = scanPlugin.scan(scanningDate);
+
+        // Sort list according to last modification date
+        Collections.sort(scannedFiles, (file1, file2) -> {
+            try {
+                return Files.getLastModifiedTime(file1).compareTo(Files.getLastModifiedTime(file2));
+            } catch (IOException e) {
+                LOGGER.warn("Cannot read last modification date", e);
+                return 0;
+            }
+        });
+        if (!scannedFiles.isEmpty()) {
+            registerFiles(scannedFiles.iterator(), fileInfo, scanningDate, session, sessionOwner);
+        }
+        if (scanningDate.isPresent()) {
+            LOGGER.info("[{} - {}] Scan for files <{}> found {} files with last update date > {} ", sessionOwner,
+                        session, fileInfo.getComment(), scannedFiles.size(), scanningDate.get().toString());
+        } else {
+            LOGGER.info("[{} - {}] Scan for files <{}> found {} files with no date filter.", sessionOwner, session,
+                        fileInfo.getComment(), scannedFiles.size());
+        }
+    }
+
+    private void streamAndRegisterFiles(AcquisitionFileInfo fileInfo, IFluxScanPlugin scanPlugin,
+            Optional<OffsetDateTime> scanningDate, String session, String sessionOwner) throws ModuleException {
+        List<Stream<Path>> streams = scanPlugin.stream(scanningDate);
+        Iterator<Stream<Path>> streamsIt = streams.iterator();
+        while (streamsIt.hasNext() && !Thread.currentThread().isInterrupted()) {
+            try (Stream<Path> stream = streamsIt.next()) {
+                registerFiles(stream.iterator(), fileInfo, scanningDate, session, sessionOwner);
+            }
+        }
+    }
+
+    @Override
+    public long registerFiles(Iterator<Path> filePathsIt, AcquisitionFileInfo fileInfo,
+            Optional<OffsetDateTime> scanningDate, String session, String sessionOwner) throws ModuleException {
+        RegisterFilesResponse response;
+        long totalCount = 0;
+        OffsetDateTime lmd = null;
+        do {
+            long startTime = System.currentTimeMillis();
+            response = self.registerFilesBatch(filePathsIt, fileInfo, scanningDate, BATCH_SIZE, session, sessionOwner);
+            totalCount += response.getNumberOfRegisteredFiles();
+            // Calculate most recent file registered.
+            if ((lmd == null)
+                    || (lmd.isBefore(response.getLastUpdateDate()) && !Thread.currentThread().isInterrupted())) {
+                lmd = response.getLastUpdateDate();
+            }
+            sessionNotifier.notifyFileAcquired(session, sessionOwner, response.getNumberOfRegisteredFiles());
+            LOGGER.info("{} new file(s) registered in {} milliseconds", response.getNumberOfRegisteredFiles(),
+                        System.currentTimeMillis() - startTime);
+        } while (response.hasNext());
+        // Update file info last update date with the most recent file registered.
+        if ((lmd != null)
+                && ((fileInfo.getLastModificationDate() == null) || lmd.isAfter(fileInfo.getLastModificationDate()))) {
+            fileInfo.setLastModificationDate(lmd);
+            fileInfoRepository.save(fileInfo);
+        }
+        return totalCount;
     }
 
     @MultitenantTransactional(propagation = Propagation.REQUIRES_NEW)
     @Override
-    public int registerFiles(List<Path> filePaths, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate)
+    public RegisterFilesResponse registerFilesBatch(Iterator<Path> filePaths, AcquisitionFileInfo info,
+            Optional<OffsetDateTime> scanningDate, int limit, String session, String sessionOwner)
             throws ModuleException {
         int countRegistered = 0;
-        Iterator<Path> filePathIter = filePaths.iterator();
-        while (filePathIter.hasNext() && !Thread.currentThread().isInterrupted()) {
-            if (registerFile(filePathIter.next(), info, scanningDate)) {
-                countRegistered++;
-            }
-        }
-        return countRegistered;
-    }
-
-    @Override
-    public boolean registerFile(Path filePath, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate)
-            throws ModuleException {
-
-        // Initialize new file
-        AcquisitionFile scannedFile = new AcquisitionFile();
-        scannedFile.setAcqDate(OffsetDateTime.now());
-        scannedFile.setFileInfo(info);
-        scannedFile.setFilePath(filePath);
-        scannedFile.setChecksumAlgorithm(AcquisitionProcessingChain.CHECKSUM_ALGORITHM);
-
-        // Compute checksum and manage last modification date
-        try {
-            // Compute and set checksum
-            scannedFile.setChecksum(computeFileChecksum(filePath, AcquisitionProcessingChain.CHECKSUM_ALGORITHM));
-            scannedFile.setState(AcquisitionFileState.IN_PROGRESS);
-
-            // Update last modification date
-            OffsetDateTime lmd = OffsetDateTime.ofInstant(Files.getLastModifiedTime(filePath).toInstant(),
-                                                          ZoneOffset.UTC);
-            // Prevent duplicates for files in the same second as the scanning one
-            if (scanningDate.isPresent() && scanningDate.get().isEqual(lmd)) {
-                // Check if file not already registered
-                if (acqFileRepository.countByFileInfoAndChecksum(info, scannedFile.getChecksum()) != 0) {
-                    LOGGER.debug("Duplicate file with path \"{}\" and checksum \"{}\" detected, skipping registration",
-                                 scannedFile.getFilePath(), scannedFile.getChecksum());
-                    return false;
+        OffsetDateTime lastUpdateDate = null;
+        // We catch general exception to avoid AccessDeniedException thrown by FileTreeIterator provided to this method.
+        boolean nextPath = true;
+        // First calculate
+        while (nextPath && (countRegistered < limit) && !Thread.currentThread().isInterrupted()) {
+            try {
+                Path filePath = filePaths.next();
+                if (registerFile(filePath, info, scanningDate, sessionOwner, session)) {
+                    countRegistered++;
+                    OffsetDateTime lmd;
+                    try {
+                        lmd = OffsetDateTime.ofInstant(Files.getLastModifiedTime(filePath).toInstant(), ZoneOffset.UTC);
+                        if ((lastUpdateDate == null) || lmd.isAfter(lastUpdateDate)) {
+                            lastUpdateDate = lmd;
+                        }
+                    } catch (IOException e) {
+                        LOGGER.error("Error getting last update date for file {} cause : {}.", filePath.toString(),
+                                     e.getMessage());
+                    }
                 }
+            } catch (Exception e) { // NOSONAR
+                LOGGER.error("Error parsing file. {}", e.getMessage());
+            } finally {
+                nextPath = filePaths.hasNext();
             }
-
-            info.setLastModificationDate(lmd);
-            fileInfoRepository.save(info);
-        } catch (ClosedByInterruptException e) {
-            // This exception happens when you try to access files while thread has been interrupted.
-            // In this case lets ignore the file and act as we did not scanned it.
-            LOGGER.warn(String.format("File %s scanning has been interrupted during acquisition chain execution.",
-                                      filePath),
-                        e);
-        } catch (NoSuchAlgorithmException | IOException e) {
-            // Continue silently but register error in database
-            String errorMessage = String.format("Error registering file %s : %s", scannedFile.getFilePath().toString(),
-                                                e.getMessage());
-            LOGGER.error(errorMessage, e);
-            scannedFile.setError(errorMessage);
-            scannedFile.setState(AcquisitionFileState.ERROR);
         }
-
-        // Save file
-        acqFileRepository.save(scannedFile);
-        return true;
+        return RegisterFilesResponse.build(countRegistered, lastUpdateDate, filePaths.hasNext());
     }
 
     @Override
-    public void manageRegisteredFiles(AcquisitionProcessingChain processingChain) throws ModuleException {
-        while (!Thread.currentThread().isInterrupted() && self.manageRegisteredFilesByPage(processingChain)) {
+    public boolean registerFile(Path filePath, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate,
+            String sessionOwner, String session) {
+        OffsetDateTime lmd;
+        try {
+            // If new file to register date is exactly the same as the last scanning date, check if file is not already acquired.
+            lmd = OffsetDateTime.ofInstant(Files.getLastModifiedTime(filePath).toInstant(), ZoneOffset.UTC);
+            if (scanningDate.isPresent() && lmd.equals(scanningDate.get())
+                    && acqFileRepository.findOneByFilePath(filePath).isPresent()) {
+                return false;
+            } else {
+                // Initialize new file
+                AcquisitionFile scannedFile = new AcquisitionFile();
+                scannedFile.setAcqDate(OffsetDateTime.now());
+                scannedFile.setFileInfo(info);
+                scannedFile.setFilePath(filePath);
+                scannedFile.setState(AcquisitionFileState.IN_PROGRESS);
+                scannedFile.setSessionOwner(sessionOwner);
+                scannedFile.setSession(session);
+                acqFileRepository.save(scannedFile);
+                return true;
+            }
+        } catch (IOException e) {
+            LOGGER.error(e.getMessage(), e);
+            return false;
+        }
+    }
+
+    @Override
+    public long manageRegisteredFiles(AcquisitionProcessingChain processingChain, String session)
+            throws ModuleException {
+        long nbProductsScheduled = 0L;
+        boolean stop = false;
+        while (!Thread.currentThread().isInterrupted() && !stop) {
+            ProductsPage resp = self.manageRegisteredFilesByPage(processingChain, session);
             // Works as long as there is at least one page left
+            nbProductsScheduled += resp.getScheduled();
+            stop = !resp.hasNext();
         }
         // Just trace interruption
         if (Thread.currentThread().isInterrupted()) {
             LOGGER.debug("{} thread has been interrupted", this.getClass().getName());
         }
+        return nbProductsScheduled;
     }
 
     @MultitenantTransactional(propagation = Propagation.REQUIRES_NEW)
     @Override
-    public boolean manageRegisteredFilesByPage(AcquisitionProcessingChain processingChain) throws ModuleException {
+    public ProductsPage manageRegisteredFilesByPage(AcquisitionProcessingChain processingChain, String session)
+            throws ModuleException {
 
         // - Retrieve first page of new registered files
         Page<AcquisitionFile> page = acqFileRepository
@@ -730,7 +820,7 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
         // Get validation plugin
         IValidationPlugin validationPlugin;
         try {
-            validationPlugin = pluginService.getPlugin(processingChain.getValidationPluginConf().getId());
+            validationPlugin = pluginService.getPlugin(processingChain.getValidationPluginConf().getBusinessId());
         } catch (NotAvailablePluginConfigurationException e1) {
             throw new ModuleException("Unable to run disabled acquisition chain.", e1);
         }
@@ -768,25 +858,23 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
                      validFiles.size(), page.getNumberOfElements() - validFiles.size());
 
         // Build and schedule products, for a subset of the current file page
-        Set<Product> products = productService.linkAcquisitionFilesToProducts(processingChain, validFiles);
+        Set<Product> products = productService.linkAcquisitionFilesToProducts(processingChain, session, validFiles);
+        LOGGER.debug("{} file(s) handles, {} product(s) created or updated in {} milliseconds",
+                     page.getNumberOfElements(), products.size(), System.currentTimeMillis() - startTime);
 
-        if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("{} file(s) handles, {} product(s) created or updated in {} milliseconds",
-                         page.getNumberOfElements(), products.size(), System.currentTimeMillis() - startTime);
-            // Statistics
-            int scheduledProducts = 0;
-            int notScheduledProducts = 0;
-            for (Product product : products) {
-                if (product.getSipState() == ProductSIPState.SCHEDULED) {
-                    scheduledProducts++;
-                } else {
-                    notScheduledProducts++;
-                }
+        int scheduledProducts = 0;
+        int notScheduledProducts = 0;
+
+        // Statistics
+        for (Product product : products) {
+            if (product.getSipState() == ProductSIPState.SCHEDULED) {
+                scheduledProducts++;
+            } else {
+                notScheduledProducts++;
             }
-            LOGGER.debug("{} product(s) scheduled and {} not.", scheduledProducts, notScheduledProducts);
         }
-
-        return page.hasNext();
+        LOGGER.debug("{} product(s) scheduled and {} not.", scheduledProducts, notScheduledProducts);
+        return ProductsPage.build(page.hasNext(), scheduledProducts, notScheduledProducts);
     }
 
     @MultitenantTransactional(propagation = Propagation.SUPPORTS)
@@ -800,8 +888,9 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
 
     @MultitenantTransactional(propagation = Propagation.SUPPORTS)
     @Override
-    public void retrySIPGeneration(AcquisitionProcessingChain processingChain) {
-        while (!Thread.currentThread().isInterrupted() && productService.retrySIPGenerationByPage(processingChain)) {
+    public void retrySIPGeneration(AcquisitionProcessingChain processingChain, Optional<String> sessionToRetry) {
+        while (!Thread.currentThread().isInterrupted()
+                && productService.retrySIPGenerationByPage(processingChain, sessionToRetry)) {
             // Works as long as there is at least one page left
         }
     }
@@ -857,34 +946,51 @@ public class AcquisitionProcessingService implements IAcquisitionProcessingServi
 
         AcquisitionProcessingChainMonitor summary = new AcquisitionProcessingChainMonitor(chain);
 
-        // Handle product summary
-        summary.setNbProductErrors(productService.countByProcessingChainAndSipStateIn(chain, Arrays
-                .asList(ProductSIPState.GENERATION_ERROR, ProductSIPState.NOT_SCHEDULED_INVALID, SIPState.REJECTED)));
-        summary.setNbProducts(productService.countByChain(chain));
-        summary.setNbProductsInProgress(productService
-                .countByProcessingChainAndSipStateIn(chain,
-                                                     Arrays.asList(ProductSIPState.NOT_SCHEDULED,
-                                                                   ProductSIPState.SCHEDULED,
-                                                                   ProductSIPState.SCHEDULED_INTERRUPTED)));
-
-        // Handle file summary
-        summary.setNbFileErrors(acqFileService
-                .countByChainAndStateIn(chain,
-                                        Arrays.asList(AcquisitionFileState.ERROR, AcquisitionFileState.INVALID)));
-        summary.setNbFiles(acqFileService.countByChain(chain));
-        summary.setNbFilesInProgress(acqFileService
-                .countByChainAndStateIn(chain,
-                                        Arrays.asList(AcquisitionFileState.IN_PROGRESS, AcquisitionFileState.VALID)));
-
         // Handle job summary
-        if ((chain.getLastProductAcquisitionJobInfo() != null)
-                && !chain.getLastProductAcquisitionJobInfo().getStatus().getStatus().isFinished()) {
-            summary.setNbProductAcquisitionJob(1);
-        }
-        summary.setNbSIPGenerationJobs(productService
-                .countSIPGenerationJobInfoByProcessingChainAndSipStateIn(chain, ProductSIPState.SCHEDULED));
-        summary.isActive();
+        summary.setActive((chain.getLastProductAcquisitionJobInfo() != null)
+                && !chain.getLastProductAcquisitionJobInfo().getStatus().getStatus().isFinished(),
+                          productService
+                                  .countSIPGenerationJobInfoByProcessingChainAndSipStateIn(chain,
+                                                                                           ProductSIPState.SCHEDULED));
 
         return summary;
+    }
+
+    @Override
+    public void deleteSessionProducts(String processingChainLabel, String session) throws ModuleException {
+        List<AcquisitionProcessingChain> chains = getChainsByLabel(processingChainLabel);
+        for (AcquisitionProcessingChain chain : chains) {
+            if (!chain.isLocked()) {
+                productService.deleteBySession(chain, session);
+            } else {
+                throw new ModuleException("Acquisition chain is locked. Deletion is not available right now.");
+            }
+        }
+    }
+
+    /* (non-Javadoc)
+     * @see fr.cnes.regards.modules.acquisition.service.IAcquisitionProcessingService#deleteProducts(java.lang.String)
+     */
+    @Override
+    public void deleteProducts(String processingChainLabel) throws ModuleException {
+        List<AcquisitionProcessingChain> chains = getChainsByLabel(processingChainLabel);
+        for (AcquisitionProcessingChain chain : chains) {
+            if (!chain.isLocked()) {
+                productService.deleteByProcessingChain(chain);
+            } else {
+                throw new ModuleException("Acquisition chain is locked. Deletion is not available right now.");
+            }
+        }
+    }
+
+    @Override
+    public List<AcquisitionProcessingChain> findAllBootableAutomaticChains() {
+        return acqChainRepository.findAllBootableAutomaticChains();
+    }
+
+    @Override
+    public List<AcquisitionProcessingChain> findByModeAndActiveTrueAndLockedFalse(
+            AcquisitionProcessingChainMode manual) {
+        return acqChainRepository.findByModeAndActiveTrueAndLockedFalse(manual);
     }
 }

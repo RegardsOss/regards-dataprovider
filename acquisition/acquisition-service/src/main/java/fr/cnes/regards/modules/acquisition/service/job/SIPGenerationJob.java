@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -24,6 +24,8 @@ import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.google.common.collect.Sets;
+
 import fr.cnes.regards.framework.module.rest.exception.ModuleException;
 import fr.cnes.regards.framework.modules.jobs.domain.AbstractJob;
 import fr.cnes.regards.framework.modules.jobs.domain.JobParameter;
@@ -38,7 +40,8 @@ import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingCha
 import fr.cnes.regards.modules.acquisition.plugins.ISipGenerationPlugin;
 import fr.cnes.regards.modules.acquisition.service.IAcquisitionProcessingService;
 import fr.cnes.regards.modules.acquisition.service.IProductService;
-import fr.cnes.regards.modules.ingest.domain.SIP;
+import fr.cnes.regards.modules.acquisition.service.session.SessionNotifier;
+import fr.cnes.regards.modules.ingest.dto.sip.SIP;
 
 /**
  * This job manages SIP generation for a given product
@@ -55,6 +58,9 @@ public class SIPGenerationJob extends AbstractJob<Void> {
 
     @Autowired
     private IProductService productService;
+
+    @Autowired
+    private SessionNotifier sessionNotifier;
 
     @Autowired
     private IPluginService pluginService;
@@ -84,17 +90,12 @@ public class SIPGenerationJob extends AbstractJob<Void> {
         }
 
         Set<String> productNames = getValue(parameters, PRODUCT_NAMES);
-        try {
-            products = productService.retrieve(productNames);
-        } catch (ModuleException e) {
-            handleInvalidParameter(PRODUCT_NAMES, e);
-        }
+        products = productService.retrieve(productNames);
     }
 
     @Override
     public void run() {
-        logger.debug("[{}] : starting SIP generation job of {} product(s)", processingChain.getLabel(),
-                     products.size());
+        logger.info("[{}] : starting SIP generation job of {} product(s)", processingChain.getLabel(), products.size());
         long startTime = System.currentTimeMillis();
         int generatedCount = 0; // Effectively count generated products in case of interruption
         String debugInterruption = "";
@@ -102,40 +103,49 @@ public class SIPGenerationJob extends AbstractJob<Void> {
         ISipGenerationPlugin generateSipPlugin;
         try {
             // Get an instance of the plugin
-            generateSipPlugin = pluginService.getPlugin(processingChain.getGenerateSipPluginConf().getId());
+            generateSipPlugin = pluginService.getPlugin(processingChain.getGenerateSipPluginConf().getBusinessId());
         } catch (ModuleException | NotAvailablePluginConfigurationException e) {
             // Throw a global job error, do not iterate on products
             logger.error(e.getMessage(), e);
             throw new JobRuntimeException(e.getMessage());
         }
 
-        // Launch generation plugin
+        Set<Product> success = Sets.newHashSet();
+        Set<Product> errors = Sets.newHashSet();
+
         for (Product product : products) {
             if (Thread.currentThread().isInterrupted()) {
                 debugInterruption = "before thread interruption";
                 break;
             }
             logger.trace("Generating SIP for product {}", product.getProductName());
-
             try {
+                // Launch generation plugin
                 SIP sip = generateSipPlugin.generate(product);
                 // Update product
+                sessionNotifier.notifyChangeProductState(product, ProductSIPState.SUBMITTED);
                 product.setSip(sip);
                 product.setSipState(ProductSIPState.SUBMITTED);
-                productService.saveAndSubmitSIP(product);
+                success.add(product);
                 generatedCount++;
-            } catch (ModuleException e) {
-                String message = String.format("Error while generating product \"%s\"", product.getProductName());
-                // Message already logged!
-                logger.debug(message, e);
-                product.setSipState(ProductSIPState.GENERATION_ERROR);
-                product.setError(e.getMessage());
-                productService.save(product);
+            } catch (Exception e) {
+                if (!Thread.currentThread().isInterrupted()) {
+                    String message = String.format("Error while generating product \"%s\"", product.getProductName());
+                    logger.error(message, e);
+                    sessionNotifier.notifyChangeProductState(product, ProductSIPState.GENERATION_ERROR);
+                    product.setSipState(ProductSIPState.GENERATION_ERROR);
+                    product.setError(e.getMessage());
+                    errors.add(product);
+                }
             }
         }
 
-        logger.debug("[{}] : {} SIP(s) generated in {} milliseconds {}", processingChain.getLabel(), generatedCount,
-                     System.currentTimeMillis() - startTime, debugInterruption);
+        productService.handleGeneratedProducts(processingChain, success, errors);
+        success.clear();
+        errors.clear();
 
+        logger.info("[{}] : {} SIP(s) generated in {} milliseconds {}", processingChain.getLabel(), generatedCount,
+                    System.currentTimeMillis() - startTime, debugInterruption);
+        products.clear();
     }
 }

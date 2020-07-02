@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -21,7 +21,10 @@ package fr.cnes.regards.modules.acquisition.service;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import org.junit.Assert;
@@ -42,9 +45,9 @@ import fr.cnes.regards.framework.jpa.multitenant.test.AbstractMultitenantService
 import fr.cnes.regards.framework.jpa.multitenant.transactional.MultitenantTransactional;
 import fr.cnes.regards.framework.module.rest.exception.ModuleException;
 import fr.cnes.regards.framework.modules.plugins.domain.PluginConfiguration;
-import fr.cnes.regards.framework.modules.plugins.domain.PluginParameter;
+import fr.cnes.regards.framework.modules.plugins.domain.parameter.IPluginParam;
 import fr.cnes.regards.framework.oais.urn.DataType;
-import fr.cnes.regards.framework.utils.plugins.PluginParametersFactory;
+import fr.cnes.regards.framework.utils.plugins.PluginParameterTransformer;
 import fr.cnes.regards.framework.utils.plugins.PluginUtils;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionFileRepository;
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFile;
@@ -54,11 +57,12 @@ import fr.cnes.regards.modules.acquisition.domain.ProductState;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionFileInfo;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChainMode;
+import fr.cnes.regards.modules.acquisition.domain.chain.StorageMetadataProvider;
 import fr.cnes.regards.modules.acquisition.service.plugins.DefaultFileValidation;
 import fr.cnes.regards.modules.acquisition.service.plugins.DefaultProductPlugin;
 import fr.cnes.regards.modules.acquisition.service.plugins.DefaultSIPGeneration;
 import fr.cnes.regards.modules.acquisition.service.plugins.GlobDiskScanning;
-import fr.cnes.regards.modules.ingest.domain.entity.SIPState;
+import fr.cnes.regards.modules.ingest.domain.sip.SIPState;
 
 /**
  * Test {@link AcquisitionFileService}
@@ -110,6 +114,13 @@ public class AcquisitionFileServiceTest extends AbstractMultitenantServiceTest {
         processingChain.setActive(Boolean.TRUE);
         processingChain.setMode(AcquisitionProcessingChainMode.MANUAL);
         processingChain.setIngestChain("DefaultIngestChain");
+        processingChain.setPeriodicity("0 * * * * *");
+        processingChain.setCategories(org.assertj.core.util.Sets.newLinkedHashSet());
+
+        List<StorageMetadataProvider> storages = new ArrayList<>();
+        storages.add(StorageMetadataProvider.build("AWS", "/path/to/file", new HashSet<>()));
+        storages.add(StorageMetadataProvider.build("HELLO", "/other/path/to/file", new HashSet<>()));
+        processingChain.setStorages(storages);
 
         // Create an acquisition file info
         AcquisitionFileInfo fileInfo = new AcquisitionFileInfo();
@@ -121,8 +132,9 @@ public class AcquisitionFileServiceTest extends AbstractMultitenantServiceTest {
         // Search directory
         Path searchDir = Paths.get("src", "test", "resources", "data", "plugins", "scan");
 
-        Set<PluginParameter> parameters = PluginParametersFactory.build()
-                .addParameter(GlobDiskScanning.FIELD_DIRS, Arrays.asList(searchDir.toString())).getParameters();
+        Set<IPluginParam> parameters = IPluginParam
+                .set(IPluginParam.build(GlobDiskScanning.FIELD_DIRS,
+                                        PluginParameterTransformer.toJson(Arrays.asList(searchDir.toString()))));
 
         PluginConfiguration scanPlugin = PluginUtils.getPluginConfiguration(parameters, GlobDiskScanning.class);
         scanPlugin.setIsActive(true);
@@ -169,7 +181,7 @@ public class AcquisitionFileServiceTest extends AbstractMultitenantServiceTest {
         product.setProcessingChain(processingChain);
         product.setProductName("product name");
         product.setSession("session");
-        product.setSipState(SIPState.INDEXED);
+        product.setSipState(SIPState.INGESTED);
         product.setState(ProductState.COMPLETED);
         product = productService.save(product);
 
@@ -178,10 +190,8 @@ public class AcquisitionFileServiceTest extends AbstractMultitenantServiceTest {
         for (AcquisitionFileState fileState : AcquisitionFileState.values()) {
             AcquisitionFile file = new AcquisitionFile();
             file.setAcqDate(OffsetDateTime.now());
-            file.setChecksum("123445");
-            file.setChecksumAlgorithm("MD5");
             file.setError("");
-            file.setFileInfo(processingChain.getFileInfos().get(0));
+            file.setFileInfo(processingChain.getFileInfos().iterator().next());
             file.setFilePath(Paths.get("/chain2/file" + idx));
             file.setProduct(product);
             file.setState(fileState);
@@ -193,10 +203,8 @@ public class AcquisitionFileServiceTest extends AbstractMultitenantServiceTest {
         for (AcquisitionFileState fileState : AcquisitionFileState.values()) {
             AcquisitionFile file = new AcquisitionFile();
             file.setAcqDate(OffsetDateTime.now());
-            file.setChecksum("123445");
-            file.setChecksumAlgorithm("MD5");
             file.setError("");
-            file.setFileInfo(processingChain2.getFileInfos().get(0));
+            file.setFileInfo(processingChain2.getFileInfos().iterator().next());
             file.setFilePath(Paths.get("/chain2/file" + idx));
             file.setProduct(product);
             file.setState(fileState);
@@ -216,7 +224,7 @@ public class AcquisitionFileServiceTest extends AbstractMultitenantServiceTest {
     @Test
     public void testSearchFiles() {
         Page<AcquisitionFile> results = fileService.search("file", null, null, null, null, PageRequest.of(0, 100));
-        Assert.assertTrue(results.getNumberOfElements() == AcquisitionFileState.values().length * 2);
+        Assert.assertTrue(results.getNumberOfElements() == (AcquisitionFileState.values().length * 2));
 
         results = fileService.search("/other", null, null, null, null, PageRequest.of(0, 100));
         Assert.assertTrue(results.getNumberOfElements() == 0);

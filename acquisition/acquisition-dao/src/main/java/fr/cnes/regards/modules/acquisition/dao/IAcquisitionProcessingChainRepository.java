@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -84,4 +84,6 @@ public interface IAcquisitionProcessingChainRepository
     @Modifying
     @Query("update AcquisitionProcessingChain chain set chain.locked = ?1 where chain.id = ?2")
     int setLocked(Boolean isLocked, Long chainId);
+
+    List<AcquisitionProcessingChain> findByLabel(String label);
 }

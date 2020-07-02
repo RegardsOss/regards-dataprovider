@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -20,13 +20,16 @@ package fr.cnes.regards.modules.acquisition.service;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,13 +44,17 @@ import com.google.common.collect.Sets;
 
 import fr.cnes.regards.framework.jpa.multitenant.test.AbstractMultitenantServiceTest;
 import fr.cnes.regards.framework.module.rest.exception.ModuleException;
+import fr.cnes.regards.framework.modules.jobs.domain.JobInfo;
 import fr.cnes.regards.framework.modules.jobs.domain.JobParameter;
+import fr.cnes.regards.framework.modules.jobs.service.IJobInfoService;
 import fr.cnes.regards.framework.modules.plugins.domain.PluginConfiguration;
-import fr.cnes.regards.framework.modules.plugins.domain.PluginParameter;
+import fr.cnes.regards.framework.modules.plugins.domain.parameter.IPluginParam;
+import fr.cnes.regards.framework.modules.plugins.service.IPluginService;
 import fr.cnes.regards.framework.oais.urn.DataType;
-import fr.cnes.regards.framework.utils.plugins.PluginParametersFactory;
 import fr.cnes.regards.framework.utils.plugins.PluginUtils;
+import fr.cnes.regards.modules.acquisition.dao.IAcquisitionFileInfoRepository;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionFileRepository;
+import fr.cnes.regards.modules.acquisition.dao.IAcquisitionProcessingChainRepository;
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFile;
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFileState;
 import fr.cnes.regards.modules.acquisition.domain.Product;
@@ -55,6 +62,9 @@ import fr.cnes.regards.modules.acquisition.domain.ProductSIPState;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionFileInfo;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChainMode;
+import fr.cnes.regards.modules.acquisition.domain.chain.StorageMetadataProvider;
+import fr.cnes.regards.modules.acquisition.service.job.AcquisitionJobPriority;
+import fr.cnes.regards.modules.acquisition.service.job.ProductAcquisitionJob;
 import fr.cnes.regards.modules.acquisition.service.job.SIPGenerationJob;
 import fr.cnes.regards.modules.acquisition.service.plugins.DefaultFileValidation;
 import fr.cnes.regards.modules.acquisition.service.plugins.DefaultProductPlugin;
@@ -85,6 +95,28 @@ public class GeojsonProductAcquisitionServiceTest extends AbstractMultitenantSer
     @Autowired
     private AutowireCapableBeanFactory beanFactory;
 
+    @Autowired
+    private IAcquisitionFileInfoRepository fileInfoRepository;
+
+    @Autowired
+    private IPluginService pluginService;
+
+    @Autowired
+    private IJobInfoService jobInfoService;
+
+    @Autowired
+    private IAcquisitionProcessingChainRepository acquisitionProcessingChainRepository;
+
+    @Before
+    public void before() throws ModuleException {
+        acqFileRepository.deleteAll();
+        fileInfoRepository.deleteAll();
+        acquisitionProcessingChainRepository.deleteAll();
+        for (PluginConfiguration pc : pluginService.getAllPluginConfigurations()) {
+            pluginService.deletePluginConfiguration(pc.getBusinessId());
+        }
+    }
+
     public AcquisitionProcessingChain createProcessingChain() throws ModuleException {
 
         // Pathes
@@ -96,6 +128,8 @@ public class GeojsonProductAcquisitionServiceTest extends AbstractMultitenantSer
         processingChain.setActive(Boolean.TRUE);
         processingChain.setMode(AcquisitionProcessingChainMode.MANUAL);
         processingChain.setIngestChain("DefaultIngestChain");
+        processingChain.setPeriodicity("0 * * * * *");
+        processingChain.setCategories(Sets.newLinkedHashSet());
 
         // RAW DATA file infos
         AcquisitionFileInfo fileInfo = new AcquisitionFileInfo();
@@ -104,9 +138,9 @@ public class GeojsonProductAcquisitionServiceTest extends AbstractMultitenantSer
         fileInfo.setMimeType(MediaType.APPLICATION_JSON);
         fileInfo.setDataType(DataType.RAWDATA);
 
-        Set<PluginParameter> parameters = PluginParametersFactory.build()
-                .addParameter(GeoJsonFeatureCollectionParserPlugin.FIELD_FEATURE_ID, "nom")
-                .addParameter(GeoJsonFeatureCollectionParserPlugin.FIELD_DIR, dataPath.toString()).getParameters();
+        Set<IPluginParam> parameters = IPluginParam
+                .set(IPluginParam.build(GeoJsonFeatureCollectionParserPlugin.FIELD_FEATURE_ID, "nom"),
+                     IPluginParam.build(GeoJsonFeatureCollectionParserPlugin.FIELD_DIR, dataPath.toString()));
 
         PluginConfiguration scanPlugin = PluginUtils.getPluginConfiguration(parameters,
                                                                             GeoJsonFeatureCollectionParserPlugin.class);
@@ -139,6 +173,21 @@ public class GeojsonProductAcquisitionServiceTest extends AbstractMultitenantSer
 
         // SIP post processing
         // Not required
+        List<StorageMetadataProvider> storages = new ArrayList<>();
+        storages.add(StorageMetadataProvider.build("AWS", "/path/to/file", new HashSet<>()));
+        storages.add(StorageMetadataProvider.build("HELLO", "/other/path/to/file", new HashSet<>()));
+        processingChain.setStorages(storages);
+
+        // we need to set up a fake ProductAcquisitionJob to fill its attributes
+        JobInfo jobInfo = new JobInfo(true);
+        jobInfo.setPriority(AcquisitionJobPriority.PRODUCT_ACQUISITION_JOB_PRIORITY.getPriority());
+        jobInfo.setParameters(new JobParameter(ProductAcquisitionJob.CHAIN_PARAMETER_ID, processingChain.getId()),
+                              new JobParameter(ProductAcquisitionJob.CHAIN_PARAMETER_SESSION, "my funky session"));
+        jobInfo.setClassName(ProductAcquisitionJob.class.getName());
+        jobInfo.setOwner("user 1");
+        jobInfoService.createAsQueued(jobInfo);
+
+        processingChain.setLastProductAcquisitionJobInfo(jobInfo);
 
         // Save processing chain
         return processingService.createChain(processingChain);
@@ -147,20 +196,22 @@ public class GeojsonProductAcquisitionServiceTest extends AbstractMultitenantSer
     @Test
     public void acquisitionWorkflowTest() throws ModuleException {
 
+        String session = "session1";
+
         AcquisitionProcessingChain processingChain = createProcessingChain();
         //AcquisitionProcessingChain processingChain = processingService.getFullChains().get(0);
 
-        processingService.scanAndRegisterFiles(processingChain);
+        processingService.scanAndRegisterFiles(processingChain, session);
 
         // Check registered files
         for (AcquisitionFileInfo fileInfo : processingChain.getFileInfos()) {
             Page<AcquisitionFile> inProgressFiles = acqFileRepository
                     .findByStateAndFileInfoOrderByIdAsc(AcquisitionFileState.IN_PROGRESS, fileInfo,
                                                         PageRequest.of(0, 1));
-            Assert.assertTrue(inProgressFiles.getTotalElements() == 1);
+            Assert.assertEquals(1, inProgressFiles.getTotalElements());
         }
 
-        processingService.manageRegisteredFiles(processingChain);
+        processingService.manageRegisteredFiles(processingChain, session);
 
         // Check registered files
         for (AcquisitionFileInfo fileInfo : processingChain.getFileInfos()) {

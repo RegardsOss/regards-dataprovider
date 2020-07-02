@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -24,6 +24,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +35,7 @@ import fr.cnes.regards.framework.module.rest.exception.ModuleException;
 import fr.cnes.regards.framework.modules.plugins.annotations.Plugin;
 import fr.cnes.regards.framework.oais.urn.DataType;
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFile;
+import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
 import fr.cnes.regards.modules.acquisition.domain.metamodel.MetaAttribute;
 import fr.cnes.regards.modules.acquisition.domain.model.Attribute;
 import fr.cnes.regards.modules.acquisition.domain.model.AttributeTypeEnum;
@@ -42,7 +44,7 @@ import fr.cnes.regards.modules.acquisition.domain.model.GeoAttribute;
 import fr.cnes.regards.modules.acquisition.domain.model.LongAttribute;
 import fr.cnes.regards.modules.acquisition.domain.model.StringAttribute;
 import fr.cnes.regards.modules.acquisition.plugins.ISipGenerationPlugin;
-import fr.cnes.regards.modules.ingest.domain.builder.SIPBuilder;
+import fr.cnes.regards.modules.ingest.dto.sip.SIPBuilder;
 
 /**
  * A simple {@link Plugin} of type {@link ISipGenerationPlugin}.
@@ -70,7 +72,8 @@ public class TestGenerateSipPlugin extends AbstractGenerateSIPPlugin implements 
     protected void addDataObjectsToSip(SIPBuilder sipBuilder, Set<AcquisitionFile> acqFiles) throws ModuleException {
         for (AcquisitionFile af : acqFiles) {
             sipBuilder.getContentInformationBuilder().setDataObject(DataType.RAWDATA, af.getFilePath().toAbsolutePath(),
-                                                                    af.getChecksumAlgorithm(), af.getChecksum());
+                                                                    AcquisitionProcessingChain.CHECKSUM_ALGORITHM,
+                                                                    UUID.randomUUID().toString());
             sipBuilder.getContentInformationBuilder().setSyntax(af.getFileInfo().getMimeType());
             sipBuilder.addContentInformation();
         }

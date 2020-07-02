@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -47,8 +47,8 @@ import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.ProductState;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
 import fr.cnes.regards.modules.acquisition.service.IProductService;
-import fr.cnes.regards.modules.ingest.domain.entity.ISipState;
-import fr.cnes.regards.modules.ingest.domain.entity.SIPState;
+import fr.cnes.regards.modules.ingest.domain.sip.ISipState;
+import fr.cnes.regards.modules.ingest.domain.sip.SIPState;
 
 /**
  * {@link Product} REST module controller
@@ -61,6 +61,8 @@ public class ProductController implements IResourceController<Product> {
     public static final String TYPE_PATH = "/products";
 
     public static final String PRODUCT_PATH = "/{productId}";
+
+    public static final String RELAUNCH_ERRORS_PATH = "/{acquisitionChain}/{session}/relaunch";
 
     public static final String REQUEST_PARAM_STATE = "state";
 
@@ -96,7 +98,7 @@ public class ProductController implements IResourceController<Product> {
      * @return {@link Product}s
      */
     @RequestMapping(method = RequestMethod.GET)
-    @ResourceAccess(description = "Search for products", role = DefaultRole.PROJECT_ADMIN)
+    @ResourceAccess(description = "Search for products", role = DefaultRole.ADMIN)
     public ResponseEntity<PagedResources<Resource<Product>>> search(
             @RequestParam(name = REQUEST_PARAM_STATE, required = false) List<ProductState> state,
             @RequestParam(name = REQUEST_PARAM_SIP_STATE, required = false) List<ISipState> sipState,
@@ -104,12 +106,12 @@ public class ProductController implements IResourceController<Product> {
             @RequestParam(name = REQUEST_PARAM_SESSION, required = false) String session,
             @RequestParam(name = REQUEST_PARAM_CHAIN_ID, required = false) Long processingChainId,
             @RequestParam(name = REQUEST_PARAM_NO_SESSION, required = false) Boolean noSession,
-            @RequestParam(name = REQUEST_PARAM_FROM, required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
+            @RequestParam(name = REQUEST_PARAM_FROM,
+                    required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
             @PageableDefault(sort = "lastUpdate", direction = Sort.Direction.ASC) Pageable pageable,
             PagedResourcesAssembler<Product> assembler) {
-        Page<Product> products = productService
-                .search(state, sipState, productName, session, processingChainId, from, noSession, pageable);
+        Page<Product> products = productService.search(state, sipState, productName, session, processingChainId, from,
+                                                       noSession, pageable);
         return new ResponseEntity<>(toPagedResources(products, assembler), HttpStatus.OK);
     }
 
@@ -117,7 +119,7 @@ public class ProductController implements IResourceController<Product> {
      * Retreive a {@link Product} by id
      */
     @RequestMapping(method = RequestMethod.GET, value = PRODUCT_PATH)
-    @ResourceAccess(description = "Get a product", role = DefaultRole.PROJECT_ADMIN)
+    @ResourceAccess(description = "Get a product", role = DefaultRole.ADMIN)
     public ResponseEntity<Resource<Product>> get(@PathVariable Long productId) throws ModuleException {
         return ResponseEntity.ok(toResource(productService.loadProduct(productId)));
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -20,7 +20,7 @@ package fr.cnes.regards.modules.acquisition.service.plugins;
 
 import fr.cnes.regards.framework.modules.plugins.annotations.PluginParameter;
 import fr.cnes.regards.modules.acquisition.plugins.ISipGenerationPlugin;
-import fr.cnes.regards.modules.ingest.domain.builder.SIPBuilder;
+import fr.cnes.regards.modules.ingest.dto.sip.SIPBuilder;
 
 /**
  * Abstract class to provide a configurable {@link ISipGenerationPlugin} tool
@@ -33,14 +33,14 @@ public abstract class AbstractStorageInformation {
 
     public static final String SIP_STAF_STORAGE_NODE_KEY = "staf_node";
 
-    public static final String DATASET = "dataset";
+    public static final String DATASET_PUGIN_PARAM_NAME = "dataset";
 
     public static final String SIP_DATASET_KEY = "dataset";
 
     @PluginParameter(name = STAF_STORAGE_NODE, label = "STAF Storage node", optional = true)
     protected String stafStorageNode;
 
-    @PluginParameter(name = DATASET, label = "Dataset name", optional = true)
+    @PluginParameter(name = DATASET_PUGIN_PARAM_NAME, label = "Dataset name", optional = true)
     protected String dataset;
 
     /**

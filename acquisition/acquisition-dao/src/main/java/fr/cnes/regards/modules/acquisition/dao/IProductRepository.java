@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -44,7 +44,7 @@ import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.ProductSIPState;
 import fr.cnes.regards.modules.acquisition.domain.ProductState;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
-import fr.cnes.regards.modules.ingest.domain.entity.ISipState;
+import fr.cnes.regards.modules.ingest.domain.sip.ISipState;
 
 /**
  * {@link Product} repository
@@ -65,6 +65,9 @@ public interface IProductRepository extends JpaRepository<Product, Long>, JpaSpe
     Set<Product> findByProductNameIn(Collection<String> productNames);
 
     Page<Product> findByProcessingChainOrderByIdAsc(AcquisitionProcessingChain processingChain, Pageable pageable);
+
+    Page<Product> findByProcessingChainAndSession(AcquisitionProcessingChain processingChain, String session,
+            Pageable pageable);
 
     /**
      * Find all products according to specified filters
@@ -112,6 +115,12 @@ public interface IProductRepository extends JpaRepository<Product, Long>, JpaSpe
     Page<Product> findByProcessingChainAndSipStateOrderByIdAsc(AcquisitionProcessingChain processingChain,
             ProductSIPState sipState, Pageable pageable);
 
+    Page<Product> findByProcessingChainAndSipStateInOrderByIdAsc(AcquisitionProcessingChain processingChain,
+            List<ProductSIPState> sipState, Pageable pageable);
+
+    Page<Product> findByProcessingChainAndSessionAndSipStateInOrderByIdAsc(AcquisitionProcessingChain processingChain,
+            String session, List<ProductSIPState> sipState, Pageable pageable);
+
     /**
      * Find {@link Product} by state
      * @param sipState {@link ISipState}
@@ -121,8 +130,8 @@ public interface IProductRepository extends JpaRepository<Product, Long>, JpaSpe
     Page<Product> findBySipStateOrderByIdAsc(ISipState sipState, Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_READ)
-    Page<Product> findByProcessingChainAndStateOrderByIdAsc(AcquisitionProcessingChain processingChain, ProductState state,
-            Pageable pageable);
+    Page<Product> findByProcessingChainAndStateOrderByIdAsc(AcquisitionProcessingChain processingChain,
+            ProductState state, Pageable pageable);
 
     /**
      * Count number of products associated to the given {@link AcquisitionProcessingChain} and in the given state
@@ -151,6 +160,8 @@ public interface IProductRepository extends JpaRepository<Product, Long>, JpaSpe
             nativeQuery = true)
     long countDistinctLastSIPGenerationJobInfoByProcessingChainAndSipState(AcquisitionProcessingChain processingChain,
             String productSipState);
+
+    boolean existsByProcessingChainAndSipStateIn(AcquisitionProcessingChain processingChain, ISipState productSipState);
 
     @Query(value = "select distinct p.lastSIPGenerationJobInfo from  Product p where p.processingChain=?1 and p.sipState=?2")
     Set<JobInfo> findDistinctLastSIPGenerationJobInfoByProcessingChainAndSipStateIn(
@@ -188,4 +199,6 @@ public interface IProductRepository extends JpaRepository<Product, Long>, JpaSpe
 
     @EntityGraph("graph.product.complete")
     List<Product> findAllByIdIn(List<Long> productIds, Sort sort);
+
+    Page<Product> findByProcessingChain(AcquisitionProcessingChain chain, Pageable page);
 }

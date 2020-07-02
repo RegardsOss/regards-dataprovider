@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -32,6 +32,7 @@ import fr.cnes.regards.modules.acquisition.dao.IAcquisitionFileRepository;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionProcessingChainRepository;
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFile;
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFileState;
+import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionFileInfo;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
 
@@ -49,6 +50,10 @@ public class AcquisitionFileService implements IAcquisitionFileService {
 
     @Autowired
     private IAcquisitionProcessingChainRepository chainRepository;
+
+    public void deleteByProduct(Product product) {
+        fileRepository.deleteByProduct(product);
+    }
 
     @Override
     public long countByChainAndStateIn(AcquisitionProcessingChain chain, List<AcquisitionFileState> fileStates) {

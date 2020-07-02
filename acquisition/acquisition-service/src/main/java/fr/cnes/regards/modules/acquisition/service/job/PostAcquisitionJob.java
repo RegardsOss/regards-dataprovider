@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -38,7 +38,7 @@ import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
 import fr.cnes.regards.modules.acquisition.plugins.ISipPostProcessingPlugin;
 import fr.cnes.regards.modules.acquisition.service.IProductService;
-import fr.cnes.regards.modules.ingest.domain.event.SIPEvent;
+import fr.cnes.regards.modules.ingest.client.RequestInfo;
 
 /**
  *
@@ -52,29 +52,27 @@ public class PostAcquisitionJob extends AbstractJob<Void> {
 
     public static final String EVENT_PARAMETER = "event";
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(PostAcquisitionJob.class);
-
     @Autowired
     private PluginService pluginService;
 
     @Autowired
     private IProductService productService;
 
-    private SIPEvent sipEvent;
+    private RequestInfo info;
 
     @Override
     public void setParameters(Map<String, JobParameter> parameters)
             throws JobParameterMissingException, JobParameterInvalidException {
-        sipEvent = getValue(parameters, EVENT_PARAMETER);
+        info = getValue(parameters, EVENT_PARAMETER);
     }
 
     @Override
     public void run() {
-        logger.info("Start POST acquisition SIP job for the product <{}>", sipEvent.getProviderId());
+        logger.info("Start POST acquisition SIP job for the product <{}>", info.getProviderId());
 
         try {
             // Load product
-            Optional<Product> oProduct = productService.searchProduct(sipEvent.getProviderId());
+            Optional<Product> oProduct = productService.searchProduct(info.getProviderId());
 
             if (oProduct.isPresent()) {
                 Product product = oProduct.get();
@@ -96,7 +94,7 @@ public class PostAcquisitionJob extends AbstractJob<Void> {
 
                 }
             } else {
-                logger.debug("No product associated to SIP id\"{}\"", sipEvent.getSipId());
+                logger.debug("No product associated to SIP id\"{}\"", info.getSipId());
             }
         } catch (ModuleException pse) {
             logger.error("Business error", pse);

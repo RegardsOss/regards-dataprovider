@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -22,7 +22,7 @@ import org.springframework.core.convert.converter.Converter;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 
 import fr.cnes.regards.modules.acquisition.domain.SipStateManager;
-import fr.cnes.regards.modules.ingest.domain.entity.ISipState;
+import fr.cnes.regards.modules.ingest.domain.sip.ISipState;
 
 /**
  * Implement the type conversion logic for a String to a {@link ISipState}.<br>

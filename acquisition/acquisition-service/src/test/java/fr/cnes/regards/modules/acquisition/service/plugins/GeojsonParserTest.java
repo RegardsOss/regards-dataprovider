@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -38,7 +38,7 @@ import fr.cnes.regards.framework.module.rest.exception.ModuleException;
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFile;
 import fr.cnes.regards.modules.acquisition.domain.AcquisitionFileState;
 import fr.cnes.regards.modules.acquisition.domain.Product;
-import fr.cnes.regards.modules.ingest.domain.SIP;
+import fr.cnes.regards.modules.ingest.dto.sip.SIP;
 
 @TestPropertySource(properties = { "spring.jpa.properties.hibernate.default_schema=geojson_test" })
 public class GeojsonParserTest extends AbstractMultitenantServiceTest {

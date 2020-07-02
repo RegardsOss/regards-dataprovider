@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -21,6 +21,7 @@ package fr.cnes.regards.modules.acquisition.rest;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -42,7 +43,7 @@ import com.jayway.jsonpath.JsonPath;
 import fr.cnes.regards.framework.microservice.rest.ModuleManagerController;
 import fr.cnes.regards.framework.module.rest.exception.ModuleException;
 import fr.cnes.regards.framework.modules.plugins.domain.PluginConfiguration;
-import fr.cnes.regards.framework.modules.plugins.domain.PluginParameter;
+import fr.cnes.regards.framework.modules.plugins.domain.parameter.IPluginParam;
 import fr.cnes.regards.framework.multitenant.IRuntimeTenantResolver;
 import fr.cnes.regards.framework.oais.urn.DataType;
 import fr.cnes.regards.framework.test.integration.AbstractRegardsTransactionalIT;
@@ -50,13 +51,15 @@ import fr.cnes.regards.framework.test.integration.ConstrainedFields;
 import fr.cnes.regards.framework.test.integration.RequestBuilderCustomizer;
 import fr.cnes.regards.framework.test.report.annotation.Purpose;
 import fr.cnes.regards.framework.test.report.annotation.Requirement;
-import fr.cnes.regards.framework.utils.plugins.PluginParametersFactory;
 import fr.cnes.regards.framework.utils.plugins.PluginUtils;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionFileInfoRepository;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionProcessingChainRepository;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionFileInfo;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChainMode;
+import fr.cnes.regards.modules.acquisition.domain.payload.UpdateAcquisitionProcessingChain;
+import fr.cnes.regards.modules.acquisition.domain.payload.UpdateAcquisitionProcessingChainType;
+import fr.cnes.regards.modules.acquisition.domain.payload.UpdateAcquisitionProcessingChains;
 import fr.cnes.regards.modules.acquisition.service.IAcquisitionProcessingService;
 import fr.cnes.regards.modules.acquisition.service.plugins.GlobDiskScanning;
 
@@ -96,9 +99,8 @@ public class AcquisitionProcessingChainControllerIT extends AbstractRegardsTrans
 
         AcquisitionProcessingChain chain = AcquisitionTestUtils.getNewChain("post");
 
-        customizer.document(PayloadDocumentation.relaxedRequestFields(Attributes.attributes(Attributes
-                                                                                                    .key(RequestBuilderCustomizer.PARAM_TITLE)
-                                                                                                    .value("Acquisition processing chain")),
+        customizer.document(PayloadDocumentation.relaxedRequestFields(Attributes
+                .attributes(Attributes.key(RequestBuilderCustomizer.PARAM_TITLE).value("Acquisition processing chain")),
                                                                       documentAcquisitionProcessingChain()));
 
         // Create the chain
@@ -123,7 +125,9 @@ public class AcquisitionProcessingChainControllerIT extends AbstractRegardsTrans
         fields.add(constrainedFields.withPath("mode", "mode", "Mode", "Allowed values : " + joiner.toString()));
 
         fields.add(constrainedFields.withPath("session", "Ingest session name for SIP submission").optional()
-                           .type("String"));
+                .type("String"));
+        fields.add(constrainedFields.withPath("categories", "Ingest categories").optional()
+                .type(List.class));
         fields.add(constrainedFields.withPath("ingestChain", "Ingest chain name for SIP submission"));
         fields.add(constrainedFields.withPath("locked", "locked", "Internal chain processing lock", "NA").optional()
                            .type("Boolean"));
@@ -216,16 +220,12 @@ public class AcquisitionProcessingChainControllerIT extends AbstractRegardsTrans
         customizer = customizer().expectStatusOk();
 
         // Document path parameter
-        customizer.document(RequestDocumentation.pathParameters(RequestDocumentation.parameterWithName(
-                AcquisitionProcessingChainController.CHAIN_PATH_PARAM).attributes(Attributes
-                                                                                          .key(RequestBuilderCustomizer.PARAM_TYPE)
-                                                                                          .value(JSON_STRING_TYPE))
-                                                                        .description("Acquisition chain identifier")));
-        performDefaultGet(
-                AcquisitionProcessingChainController.TYPE_PATH + AcquisitionProcessingChainController.CHAIN_PATH,
-                customizer,
-                "Chain should be retrieved",
-                chainId);
+        customizer.document(RequestDocumentation.pathParameters(RequestDocumentation
+                .parameterWithName(AcquisitionProcessingChainController.CHAIN_PATH_PARAM)
+                .attributes(Attributes.key(RequestBuilderCustomizer.PARAM_TYPE).value(JSON_STRING_TYPE))
+                .description("Acquisition chain identifier")));
+        performDefaultGet(AcquisitionProcessingChainController.TYPE_PATH
+                + AcquisitionProcessingChainController.CHAIN_PATH, customizer, "Chain should be retrieved", chainId);
     }
 
     @Test
@@ -254,21 +254,19 @@ public class AcquisitionProcessingChainControllerIT extends AbstractRegardsTrans
         Assert.assertNotNull("Chain must exist", loadedChain);
 
         // Update scan plugin
-        Set<PluginParameter> params = PluginParametersFactory.build()
-                .addParameter(GlobDiskScanning.FIELD_DIRS, new ArrayList<>()).getParameters();
+        Set<IPluginParam> params = IPluginParam.set(IPluginParam.build(GlobDiskScanning.FIELD_DIRS, new ArrayList<>()));
         PluginConfiguration scanPlugin = PluginUtils.getPluginConfiguration(params, GlobDiskScanning.class);
         scanPlugin.setIsActive(true);
         String label = "Scan plugin update";
         scanPlugin.setLabel(label);
-        loadedChain.getFileInfos().get(0).setScanPlugin(scanPlugin);
+        loadedChain.getFileInfos().iterator().next().setScanPlugin(scanPlugin);
 
         customizer = customizer().expectStatusOk();
         // Document path parameter
-        customizer.document(RequestDocumentation.pathParameters(RequestDocumentation.parameterWithName(
-                AcquisitionProcessingChainController.CHAIN_PATH_PARAM).attributes(Attributes
-                                                                                          .key(RequestBuilderCustomizer.PARAM_TYPE)
-                                                                                          .value(JSON_NUMBER_TYPE))
-                                                                        .description("Acquisition chain identifier")));
+        customizer.document(RequestDocumentation.pathParameters(RequestDocumentation
+                .parameterWithName(AcquisitionProcessingChainController.CHAIN_PATH_PARAM)
+                .attributes(Attributes.key(RequestBuilderCustomizer.PARAM_TYPE).value(JSON_NUMBER_TYPE))
+                .description("Acquisition chain identifier")));
 
         performDefaultPut(
                 AcquisitionProcessingChainController.TYPE_PATH + AcquisitionProcessingChainController.CHAIN_PATH,
@@ -280,7 +278,64 @@ public class AcquisitionProcessingChainControllerIT extends AbstractRegardsTrans
         // Load new scan plugin configuration
         runtimeTenantResolver.forceTenant(getDefaultTenant());
         loadedChain = processingService.getChain(chainId.longValue());
-        Assert.assertEquals(label, loadedChain.getFileInfos().get(0).getScanPlugin().getLabel());
+        Assert.assertEquals(label, loadedChain.getFileInfos().iterator().next().getScanPlugin().getLabel());
+    }
+
+    @Test
+    public void updateStateAndMode() throws ModuleException {
+
+        RequestBuilderCustomizer customizer = customizer().expectStatusCreated();
+
+        AcquisitionProcessingChain chain = AcquisitionTestUtils.getNewChain("update");
+
+        // Create the chain
+        ResultActions result = performDefaultPost(AcquisitionProcessingChainController.TYPE_PATH, chain, customizer,
+                                                  "Chain should be created!");
+
+        // Update chain
+        String resultAsString = payload(result);
+        Integer chainId = JsonPath.read(resultAsString, "$.content.id");
+
+        Assert.assertEquals(AcquisitionProcessingChainMode.MANUAL, chain.getMode());
+        Assert.assertEquals(true, chain.isActive());
+
+        AcquisitionProcessingChainMode mode = AcquisitionProcessingChainMode.AUTO;
+        boolean isActive = false;
+        UpdateAcquisitionProcessingChain updatePayload = UpdateAcquisitionProcessingChain
+                .build(isActive, mode, UpdateAcquisitionProcessingChainType.ALL);
+
+        customizer = customizer().expectStatusOk();
+        // Document path parameter
+        customizer.document(RequestDocumentation.pathParameters(RequestDocumentation
+                .parameterWithName(AcquisitionProcessingChainController.CHAIN_PATH_PARAM)
+                .attributes(Attributes.key(RequestBuilderCustomizer.PARAM_TYPE).value(JSON_NUMBER_TYPE))
+                .description("Acquisition chain identifier")));
+
+        performDefaultPatch(AcquisitionProcessingChainController.TYPE_PATH
+                + AcquisitionProcessingChainController.CHAIN_PATH, updatePayload, customizer, "Chain should be patched",
+                            chainId);
+
+        runtimeTenantResolver.forceTenant(getDefaultTenant());
+        AcquisitionProcessingChain loadedChain = processingService.getChain(Long.valueOf(chainId));
+        Assert.assertEquals(mode, loadedChain.getMode());
+        Assert.assertEquals(isActive, loadedChain.isActive());
+
+        // Test the other endpoint
+        mode = AcquisitionProcessingChainMode.MANUAL;
+        isActive = true;
+        UpdateAcquisitionProcessingChains updatePayload2 = UpdateAcquisitionProcessingChains
+                .build(Arrays.asList(loadedChain.getId()), UpdateAcquisitionProcessingChain
+                        .build(isActive, mode, UpdateAcquisitionProcessingChainType.ALL));
+        customizer = customizer().expectStatusOk();
+
+        performDefaultPatch(AcquisitionProcessingChainController.TYPE_PATH, updatePayload2, customizer,
+                            "Chain should be repatched");
+
+        runtimeTenantResolver.forceTenant(getDefaultTenant());
+        loadedChain = processingService.getChain(Long.valueOf(chainId));
+        Assert.assertEquals(mode, loadedChain.getMode());
+        Assert.assertEquals(isActive, loadedChain.isActive());
+
     }
 
     @Test
@@ -309,48 +364,38 @@ public class AcquisitionProcessingChainControllerIT extends AbstractRegardsTrans
         Assert.assertNotNull("Chain must exist", loadedChain);
 
         // Update scan plugin
-        Set<PluginParameter> params = PluginParametersFactory.build()
-                .addParameter(GlobDiskScanning.FIELD_DIRS, new ArrayList<>()).getParameters();
+        Set<IPluginParam> params = IPluginParam.set(IPluginParam.build(GlobDiskScanning.FIELD_DIRS, new ArrayList<>()));
         PluginConfiguration scanPlugin = PluginUtils.getPluginConfiguration(params, GlobDiskScanning.class);
         scanPlugin.setIsActive(true);
         String label = "Scan plugin update";
         scanPlugin.setLabel(label);
-        loadedChain.getFileInfos().get(0).setScanPlugin(scanPlugin);
+        loadedChain.getFileInfos().iterator().next().setScanPlugin(scanPlugin);
 
         customizer = customizer().expectStatusOk();
-        performDefaultPut(
-                AcquisitionProcessingChainController.TYPE_PATH + AcquisitionProcessingChainController.CHAIN_PATH,
-                loadedChain,
-                customizer,
-                "Chain should be updated",
-                loadedChain.getId());
+        performDefaultPut(AcquisitionProcessingChainController.TYPE_PATH
+                + AcquisitionProcessingChainController.CHAIN_PATH, loadedChain, customizer, "Chain should be updated",
+                          loadedChain.getId());
 
         // Load new scan plugin configuration
         runtimeTenantResolver.forceTenant(getDefaultTenant());
         loadedChain = processingService.getChain(chainId.longValue());
-        Assert.assertEquals(label, loadedChain.getFileInfos().get(0).getScanPlugin().getLabel());
+        Assert.assertEquals(label, loadedChain.getFileInfos().iterator().next().getScanPlugin().getLabel());
 
         // Delete active chain
         customizer = customizer().expectStatusForbidden();
-        performDefaultDelete(
-                AcquisitionProcessingChainController.TYPE_PATH + AcquisitionProcessingChainController.CHAIN_PATH,
-                customizer,
-                "Chain should be removed",
-                chainId.longValue());
+        performDefaultDelete(AcquisitionProcessingChainController.TYPE_PATH
+                + AcquisitionProcessingChainController.CHAIN_PATH, customizer, "Chain should be removed",
+                             chainId.longValue());
 
         // Change to inactive
         customizer = customizer().expectStatusOk();
 
         // Document path parameter
-        customizer.document(RequestDocumentation.pathParameters(RequestDocumentation.parameterWithName(
-                AcquisitionProcessingChainController.CHAIN_PATH_PARAM).attributes(Attributes
-                                                                                          .key(RequestBuilderCustomizer.PARAM_TYPE)
-                                                                                          .value(JSON_NUMBER_TYPE))
-                                                                        .description(
-                                                                                "Acquisition chain identifier to update")
-                                                                        .attributes(Attributes
-                                                                                            .key(RequestBuilderCustomizer.PARAM_CONSTRAINTS)
-                                                                                            .value("Chain must be disabled."))));
+        customizer.document(RequestDocumentation.pathParameters(RequestDocumentation
+                .parameterWithName(AcquisitionProcessingChainController.CHAIN_PATH_PARAM)
+                .attributes(Attributes.key(RequestBuilderCustomizer.PARAM_TYPE).value(JSON_NUMBER_TYPE))
+                .description("Acquisition chain identifier to update").attributes(Attributes
+                        .key(RequestBuilderCustomizer.PARAM_CONSTRAINTS).value("Chain must be disabled."))));
 
         loadedChain.setActive(Boolean.FALSE);
         performDefaultPut(
@@ -362,11 +407,9 @@ public class AcquisitionProcessingChainControllerIT extends AbstractRegardsTrans
 
         // Delete inactive chain
         customizer = customizer().expectStatusNoContent();
-        performDefaultDelete(
-                AcquisitionProcessingChainController.TYPE_PATH + AcquisitionProcessingChainController.CHAIN_PATH,
-                customizer,
-                "Chain should be removed",
-                chainId.longValue());
+        performDefaultDelete(AcquisitionProcessingChainController.TYPE_PATH
+                + AcquisitionProcessingChainController.CHAIN_PATH, customizer, "Chain should be removed",
+                             chainId.longValue());
     }
 
     @Test
@@ -378,6 +421,7 @@ public class AcquisitionProcessingChainControllerIT extends AbstractRegardsTrans
 
         AcquisitionProcessingChain chain = AcquisitionTestUtils.getNewChain("AutoError");
         chain.setMode(AcquisitionProcessingChainMode.AUTO);
+        chain.setPeriodicity("");
 
         // Create the chain
         performDefaultPost(AcquisitionProcessingChainController.TYPE_PATH,
@@ -395,7 +439,7 @@ public class AcquisitionProcessingChainControllerIT extends AbstractRegardsTrans
 
         AcquisitionProcessingChain chain = AcquisitionTestUtils.getNewChain("Auto10s");
         chain.setMode(AcquisitionProcessingChainMode.AUTO);
-        chain.setPeriodicity(10L);
+        chain.setPeriodicity("0 30 * * * *");
 
         // Create the chain
         performDefaultPost(AcquisitionProcessingChainController.TYPE_PATH,
@@ -420,6 +464,8 @@ public class AcquisitionProcessingChainControllerIT extends AbstractRegardsTrans
 
     @Test
     public void exportConfiguration() {
+
+        this.createChain();
         // Define expectations
         RequestBuilderCustomizer requestBuilderCustomizer = customizer().expectStatusOk();
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -20,15 +20,17 @@ package fr.cnes.regards.modules.acquisition.domain;
 
 /**
  *
- *          ACQUIRING
- *           /      \
- *          /        \
- *     COMPLETED --> INVALID
- *         |
- *      FINISHED
+ *                   ACQUIRING
+ *                   /      \
+ *                  /        \
+ *  UPDATED -- COMPLETED --> INVALID
+ *     \           |
+ *      \______ FINISHED
+ *
  * @author Christophe Mertz
  */
 public enum ProductState {
+
     /**
      * At least one mandatory file is missing
      */

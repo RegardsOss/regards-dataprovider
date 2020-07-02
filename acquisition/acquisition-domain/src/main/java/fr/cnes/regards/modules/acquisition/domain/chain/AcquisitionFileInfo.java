@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -45,6 +45,7 @@ import fr.cnes.regards.framework.jpa.converters.OffsetDateTimeAttributeConverter
 import fr.cnes.regards.framework.module.manager.ConfigIgnore;
 import fr.cnes.regards.framework.modules.plugins.domain.PluginConfiguration;
 import fr.cnes.regards.framework.oais.urn.DataType;
+
 
 /**
  *
@@ -159,32 +160,38 @@ public class AcquisitionFileInfo {
     }
 
     @Override
-    public int hashCode() {
-        final int prime = 31;
-        int result = 1;
-        result = (prime * result) + ((id == null) ? 0 : id.hashCode());
-        return result;
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+
+        AcquisitionFileInfo that = (AcquisitionFileInfo) o;
+
+        if (id != null ? !id.equals(that.id) : that.id != null) {
+            return false;
+        }
+        if (scanPlugin != null ? !scanPlugin.equals(that.scanPlugin) : that.scanPlugin != null) {
+            return false;
+        }
+        if (mimeType != null ? !mimeType.equals(that.mimeType) : that.mimeType != null) {
+            return false;
+        }
+        if (dataType != that.dataType) {
+            return false;
+        }
+        return comment != null ? comment.equals(that.comment) : that.comment == null;
     }
 
     @Override
-    public boolean equals(Object obj) {
-        if (this == obj) {
-            return true;
-        }
-        if (obj == null) {
-            return false;
-        }
-        if (getClass() != obj.getClass()) {
-            return false;
-        }
-        AcquisitionFileInfo other = (AcquisitionFileInfo) obj;
-        if (id == null) {
-            if (other.id != null) {
-                return false;
-            }
-        } else if (!id.equals(other.id)) {
-            return false;
-        }
-        return true;
+    public int hashCode() {
+        int result = id != null ? id.hashCode() : 0;
+        result = 31 * result + (scanPlugin != null ? scanPlugin.hashCode() : 0);
+        result = 31 * result + (mimeType != null ? mimeType.hashCode() : 0);
+        result = 31 * result + (dataType != null ? dataType.hashCode() : 0);
+        result = 31 * result + (comment != null ? comment.hashCode() : 0);
+        return result;
     }
 }

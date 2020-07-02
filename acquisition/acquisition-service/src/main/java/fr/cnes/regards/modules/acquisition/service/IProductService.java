@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -33,10 +33,13 @@ import fr.cnes.regards.modules.acquisition.domain.AcquisitionFile;
 import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.ProductSIPState;
 import fr.cnes.regards.modules.acquisition.domain.ProductState;
+import fr.cnes.regards.modules.acquisition.domain.ProductsPage;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
-import fr.cnes.regards.modules.ingest.domain.entity.ISipState;
-import fr.cnes.regards.modules.ingest.domain.entity.SIPState;
-import fr.cnes.regards.modules.ingest.domain.event.SIPEvent;
+import fr.cnes.regards.modules.acquisition.exception.SIPGenerationException;
+import fr.cnes.regards.modules.acquisition.service.job.SIPGenerationJob;
+import fr.cnes.regards.modules.ingest.client.RequestInfo;
+import fr.cnes.regards.modules.ingest.domain.sip.ISipState;
+import fr.cnes.regards.modules.ingest.domain.sip.SIPState;
 
 /**
  *
@@ -50,7 +53,8 @@ public interface IProductService {
     /**
      * After product SIP generation, save the product state and submit its SIP in the SIP data flow (within the same transaction)
      */
-    Product saveAndSubmitSIP(Product product);
+    Product saveAndSubmitSIP(Product product, AcquisitionProcessingChain acquisitionChain)
+            throws SIPGenerationException;
 
     /**
      * @return all {@link Product}
@@ -71,9 +75,8 @@ public interface IProductService {
 
     /**
      * Retrieve a collection of product by names
-     * @param productNames list of all product names
      */
-    Set<Product> retrieve(Collection<String> productNames) throws ModuleException;
+    Set<Product> retrieve(Collection<String> productNames);
 
     /**
      * Delete one specified {@link Product}
@@ -85,7 +88,22 @@ public interface IProductService {
      * Delete one specified {@link Product}
      * @param product {@link Product} to delete
      */
-    void delete(Product product);
+    void delete(AcquisitionProcessingChain chain, Product product);
+
+    /**
+     * Delete products
+     * @param chain
+     * @param session
+     * @return number of deleted products
+     */
+    long deleteBySession(AcquisitionProcessingChain chain, String session);
+
+    /**
+     *
+     * @param chain
+     * @return number of deleted products
+     */
+    long deleteByProcessingChain(AcquisitionProcessingChain chain);
 
     /**
      * @return page of products related to specified
@@ -126,13 +144,22 @@ public interface IProductService {
             ISipState productSipState);
 
     /**
+     * Check if a product exists for the given chain and the given associated SIP state
+     * @param processingChain {@link AcquisitionProcessingChain}
+     * @param productSipState {@link ISipState}
+     * @return boolean
+     */
+    boolean existsByProcessingChainAndSipStateIn(AcquisitionProcessingChain processingChain, ISipState productSipState);
+
+    /**
      * Link acquired files to theirs products creating or updating them.<br/>
      * If product is completed or finished, a SIP generation job is scheduled.
      *
      * @param processingChain the related {@link AcquisitionProcessingChain}
+     * @param session job session
      * @return the existing {@link Product} corresponding to the product name
      */
-    Set<Product> linkAcquisitionFilesToProducts(AcquisitionProcessingChain processingChain,
+    Set<Product> linkAcquisitionFilesToProducts(AcquisitionProcessingChain processingChain, String session,
             List<AcquisitionFile> validFiles) throws ModuleException;
 
     /**
@@ -141,10 +168,20 @@ public interface IProductService {
     void handleSIPGenerationError(JobInfo jobInfo);
 
     /**
-     * Handle a SIP event
-     * @param event {@link SIPEvent}
+     * Handle {@link SIPGenerationJob} success.
+     * @param jobInfo
      */
-    void handleSIPEvent(SIPEvent event);
+    void handleSipGenerationSuccess(JobInfo jobInfo);
+
+    /**
+     * Handle successful SIP submission
+     */
+    void handleIngestedSIPSuccess(Collection<RequestInfo> infos);
+
+    /**
+     * Handle failure SIP submission
+     */
+    void handleIngestedSIPFailed(Collection<RequestInfo> infos);
 
     /**
      * Count number of {@link Product} associated to the given {@link AcquisitionProcessingChain}
@@ -196,7 +233,7 @@ public interface IProductService {
     /**
      * Retry SIP generation jobs for products in {@link ProductSIPState#GENERATION_ERROR}
      */
-    boolean retrySIPGenerationByPage(AcquisitionProcessingChain processingChain);
+    boolean retrySIPGenerationByPage(AcquisitionProcessingChain processingChain, Optional<String> sessionToRetry);
 
     /**
      * Change sip states by acquisition chain
@@ -210,12 +247,22 @@ public interface IProductService {
 
     /**
      * Manage product state of updated products and schedule them for SIP generation as soon as possible
+     * @return Number of scheduled products
      */
-    void manageUpdatedProducts(AcquisitionProcessingChain processingChain);
+    long manageUpdatedProducts(AcquisitionProcessingChain processingChain);
 
     /**
      * Same action as {@link #manageUpdatedProducts(AcquisitionProcessingChain)} but in a new transaction and by page
      * @return whether there is a product page remaining to managed
      */
-    boolean manageUpdatedProductsByPage(AcquisitionProcessingChain processingChain);
+    ProductsPage manageUpdatedProductsByPage(AcquisitionProcessingChain processingChain);
+
+    /**
+     * Save success and errors products in DB and submit success ones to ingest microservice for ingestion
+     * @param processingChain
+     * @param success
+     * @param errors
+     */
+    void handleGeneratedProducts(AcquisitionProcessingChain processingChain, Set<Product> success, Set<Product> errors);
+
 }

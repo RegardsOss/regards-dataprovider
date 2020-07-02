@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -59,7 +59,8 @@ public class ScheduledDataProviderTasks {
         return new ConcurrentTaskScheduler();
     }
 
-    @Scheduled(fixedDelayString = "${regards.acquisition.process.run.chains.delay:60000}", initialDelay = 10000)
+    // Run every minutes
+    @Scheduled(cron = "0 * * * * *")
     public void processAcquisitionChains() {
         LOGGER.trace("Process run active chains");
         for (String tenant : tenantResolver.getAllActiveTenants()) {

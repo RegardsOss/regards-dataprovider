@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -30,14 +30,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.TestPropertySource;
 
-import com.google.common.collect.Sets;
-
 import fr.cnes.regards.framework.jpa.multitenant.test.AbstractDaoTest;
 import fr.cnes.regards.framework.multitenant.IRuntimeTenantResolver;
 import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.ProductSIPState;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
-import fr.cnes.regards.modules.ingest.domain.entity.ISipState;
+import fr.cnes.regards.modules.ingest.domain.sip.ISipState;
 
 /**
  * Test complex queries

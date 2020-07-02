@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -20,6 +20,7 @@ package fr.cnes.regards.modules.acquisition.service;
 
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,10 +30,13 @@ import org.springframework.data.domain.Pageable;
 import fr.cnes.regards.framework.module.rest.exception.ModuleException;
 import fr.cnes.regards.framework.modules.jobs.domain.JobInfo;
 import fr.cnes.regards.modules.acquisition.domain.ProductSIPState;
+import fr.cnes.regards.modules.acquisition.domain.ProductsPage;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionFileInfo;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChain;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChainMode;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionProcessingChainMonitor;
+import fr.cnes.regards.modules.acquisition.domain.payload.UpdateAcquisitionProcessingChain;
+import fr.cnes.regards.modules.acquisition.domain.payload.UpdateAcquisitionProcessingChains;
 
 /**
  * Acquisition processing service interface
@@ -71,6 +75,14 @@ public interface IAcquisitionProcessingService {
     Page<AcquisitionProcessingChain> getFullChains(Pageable pageable) throws ModuleException;
 
     /**
+     * Update an existing processing chain
+     * @param processingChain the updated processing chain
+     * @return updated processing chain
+     * @throws ModuleException if error occurs!
+     */
+    AcquisitionProcessingChain updateChain(AcquisitionProcessingChain processingChain) throws ModuleException;
+
+    /**
      * Create a new acquisition processing chain
      * @param processingChain the processing chain
      * @return registered processing chain
@@ -79,12 +91,16 @@ public interface IAcquisitionProcessingService {
     AcquisitionProcessingChain createChain(AcquisitionProcessingChain processingChain) throws ModuleException;
 
     /**
-     * Update an existing processing chain
-     * @param processingChain the updated processing chain
-     * @return updated processing chain
-     * @throws ModuleException if error occurs!
+     * Patch an existing processing chain with new values for active and state
      */
-    AcquisitionProcessingChain updateChain(AcquisitionProcessingChain processingChain) throws ModuleException;
+    AcquisitionProcessingChain patchStateAndMode(Long chainId, UpdateAcquisitionProcessingChain payload)
+            throws ModuleException;
+
+    /**
+     * Patch several existing processing chain with provided values for active and state
+     */
+    List<AcquisitionProcessingChain> patchChainsStateAndMode(UpdateAcquisitionProcessingChains payload)
+            throws ModuleException;
 
     /**
      * Delete an inactive processing chain according to its identifier
@@ -113,10 +129,13 @@ public interface IAcquisitionProcessingService {
     /**
      * Start a chain manually
      * @param processingChainId identifier of the chain to start
+     * @param session optional, replace the name of the acquisition session
+     * @param onlyErrors launch session only to retry generation errors.
      * @return started processing chain
      * @throws ModuleException if error occurs!
      */
-    AcquisitionProcessingChain startManualChain(Long processingChainId) throws ModuleException;
+    AcquisitionProcessingChain startManualChain(Long processingChainId, Optional<String> session, boolean onlyErrors)
+            throws ModuleException;
 
     /**
      * Stop a chain regardless of its mode.
@@ -135,48 +154,84 @@ public interface IAcquisitionProcessingService {
 
     /**
      * Stop a chain and clean all inconsistencies after all jobs are aborted
-     * @param processingChainId identifier of the chain to stop
+     * @param processingChainId identifier of the chain to stop     * @return
      * @return processing chain
      * @throws ModuleException if error occurs!
      */
     AcquisitionProcessingChain stopAndCleanChain(Long processingChainId) throws ModuleException;
 
     /**
+     * Delete all products of the given processing chain and session
+     * @param processingChainLabel
+     * @param session
+     * @throws ModuleException
+     */
+    void deleteSessionProducts(String processingChainLabel, String session) throws ModuleException;
+
+    /**
+     * Delete all products of the given processing chain
+     * @param processingChainLabel
+     * @throws ModuleException
+     */
+    void deleteProducts(String processingChainLabel) throws ModuleException;
+
+    /**
      * Scan and register detected files for specified {@link AcquisitionProcessingChain}
      * @param processingChain processing chain
+     * @param session name of the acquisition processing session
      * @throws ModuleException if error occurs!
      */
-    void scanAndRegisterFiles(AcquisitionProcessingChain processingChain) throws ModuleException;
+    void scanAndRegisterFiles(AcquisitionProcessingChain processingChain, String session) throws ModuleException;
 
     /**
      * Register multiple files in one transaction
      * @param filePaths paths of the files to register
      * @param info related file info
      * @param scanningDate reference date used to launch scan plugin
+     * @param updateFileInfo does the fileInfo last modification date should be updated
+     *                       with the file last modification date
+     * @param limit maximum number of files to register
      * @return number of registered files
      */
-    int registerFiles(List<Path> filePaths, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate)
+    RegisterFilesResponse registerFilesBatch(Iterator<Path> filePaths, AcquisitionFileInfo info,
+            Optional<OffsetDateTime> scanningDate, int limit, String session, String sessionOwner)
             throws ModuleException;
+
+    /**
+     * Register multiple files by creating multiple transactions by batch
+     * @param filePathsIt
+     * @param fileInfo
+     * @param scanningDate
+     * @param session
+     * @param sessionOwner
+     * @throws ModuleException
+     */
+    public long registerFiles(Iterator<Path> filePathsIt, AcquisitionFileInfo fileInfo,
+            Optional<OffsetDateTime> scanningDate, String session, String sessionOwner) throws ModuleException;
 
     /**
      * Register a new file in one transaction
      * @param filePath path of the file to register
      * @param info related file info
      * @param scanningDate reference date used to launch scan plugin
+     * @param sessionOwner session owner
+     * @param session last active session
      * @return true if really registered
      */
-    boolean registerFile(Path filePath, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate)
-            throws ModuleException;
+    boolean registerFile(Path filePath, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate,
+            String sessionOwner, String session) throws ModuleException;
 
     /**
      * Manage new registered file : prepare or fulfill products and schedule SIP generation as soon as possible
+     * @return number of scheduled products
      */
-    void manageRegisteredFiles(AcquisitionProcessingChain processingChain) throws ModuleException;
+    long manageRegisteredFiles(AcquisitionProcessingChain processingChain, String session) throws ModuleException;
 
     /**
      * Same action as {@link #manageRegisteredFiles(AcquisitionProcessingChain)} but in a new transaction and by page
      */
-    boolean manageRegisteredFilesByPage(AcquisitionProcessingChain processingChain) throws ModuleException;
+    ProductsPage manageRegisteredFilesByPage(AcquisitionProcessingChain processingChain, String session)
+            throws ModuleException;
 
     /**
      * Restart jobs in {@link ProductSIPState#SCHEDULED_INTERRUPTED} for processing chain
@@ -184,9 +239,10 @@ public interface IAcquisitionProcessingService {
     void restartInterruptedJobs(AcquisitionProcessingChain processingChain) throws ModuleException;
 
     /**
-     * Retry SIP generation for products in {@link ProductSIPState#GENERATION_ERROR}
+     * Retry SIP generation for products in {@link ProductSIPState#GENERATION_ERROR} or
+     *  {@link ProductSIPState#INGESTION_FAILED}
      */
-    void retrySIPGeneration(AcquisitionProcessingChain processingChain);
+    void retrySIPGeneration(AcquisitionProcessingChain processingChain, Optional<String> sessionToRetry);
 
     /**
      * Build summaries list of {@link AcquisitionProcessingChain}s.
@@ -202,4 +258,10 @@ public interface IAcquisitionProcessingService {
      * Handle {@link fr.cnes.regards.modules.acquisition.service.job.ProductAcquisitionJob} errors
      */
     void handleProductAcquisitionError(JobInfo jobInfo);
+
+    List<AcquisitionProcessingChain> findAllBootableAutomaticChains();
+
+    List<AcquisitionProcessingChain> findByModeAndActiveTrueAndLockedFalse(AcquisitionProcessingChainMode manual);
+
+    void relaunchErrors(String chainName, String session) throws ModuleException;
 }

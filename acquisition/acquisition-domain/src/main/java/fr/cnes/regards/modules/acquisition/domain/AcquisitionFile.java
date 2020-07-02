@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
+ * Copyright 2017-2020 CNES - CENTRE NATIONAL d'ETUDES SPATIALES
  *
  * This file is part of REGARDS.
  *
@@ -19,7 +19,6 @@
 package fr.cnes.regards.modules.acquisition.domain;
 
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 
 import javax.persistence.CascadeType;
@@ -56,8 +55,10 @@ import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionFileInfo;
  *
  */
 @Entity
-@Table(name = "t_acquisition_file", indexes = { @Index(name = "idx_acq_file_state", columnList = "state"),
-        @Index(name = "idx_acq_file_info", columnList = "acq_file_info_id") })
+@Table(name = "t_acquisition_file",
+        indexes = { @Index(name = "idx_acq_file_state", columnList = "state"),
+                @Index(name = "idx_acq_file_state_file_info", columnList = "state, acq_file_info_id"),
+                @Index(name = "idx_acq_file_info", columnList = "acq_file_info_id") })
 public class AcquisitionFile {
 
     @Id
@@ -90,6 +91,17 @@ public class AcquisitionFile {
     @JoinColumn(name = "product_id", foreignKey = @ForeignKey(name = "fk_acq_file_id"), updatable = false)
     private Product product;
 
+    @NotBlank(message = "Session owner is required")
+    @Column(name = "session_owner", length = 64, nullable = false)
+    private String sessionOwner;
+
+    /**
+     * The session name that create the current product
+     */
+    @NotBlank(message = "Session is required")
+    @Column(name = "session", length = 128, nullable = false)
+    private String session;
+
     /**
      * Acquisition date of the data file
      */
@@ -97,20 +109,6 @@ public class AcquisitionFile {
     @Column(name = "acquisition_date")
     @Convert(converter = OffsetDateTimeAttributeConverter.class)
     private OffsetDateTime acqDate;
-
-    /**
-     * Data file checksum. It can be null in case the checksum could not be computed
-     */
-    @Column(name = "checksum", length = 255)
-    private String checksum;
-
-    /**
-     * Algorithm used to calculate the checksum
-     * see {@link MessageDigest}
-     */
-    @NotBlank(message = "Checksum algorithm is required")
-    @Column(name = "checksumAlgorithm", length = 16)
-    private String checksumAlgorithm;
 
     @GsonIgnore
     @NotNull(message = "Acquisition file information is required")
@@ -142,28 +140,28 @@ public class AcquisitionFile {
         this.product = product;
     }
 
+    public String getSessionOwner() {
+        return sessionOwner;
+    }
+
+    public void setSessionOwner(String sessionOwner) {
+        this.sessionOwner = sessionOwner;
+    }
+
+    public String getSession() {
+        return session;
+    }
+
+    public void setSession(String session) {
+        this.session = session;
+    }
+
     public OffsetDateTime getAcqDate() {
         return acqDate;
     }
 
     public void setAcqDate(OffsetDateTime acqDate) {
         this.acqDate = acqDate;
-    }
-
-    public String getChecksum() {
-        return checksum;
-    }
-
-    public void setChecksum(String checksum) {
-        this.checksum = checksum;
-    }
-
-    public String getChecksumAlgorithm() {
-        return checksumAlgorithm;
-    }
-
-    public void setChecksumAlgorithm(String checksumAlgorithm) {
-        this.checksumAlgorithm = checksumAlgorithm;
     }
 
     public AcquisitionFileInfo getFileInfo() {
@@ -194,10 +192,9 @@ public class AcquisitionFile {
     public int hashCode() {
         final int prime = 31;
         int result = 1;
-        result = prime * result + (acqDate == null ? 0 : acqDate.hashCode());
-        result = prime * result + (checksum == null ? 0 : checksum.hashCode());
-        result = prime * result + (checksumAlgorithm == null ? 0 : checksumAlgorithm.hashCode());
-        result = prime * result + (fileInfo == null ? 0 : fileInfo.hashCode());
+        result = (prime * result) + (acqDate == null ? 0 : acqDate.hashCode());
+        result = (prime * result) + (filePath == null ? 0 : filePath.hashCode());
+        result = (prime * result) + (fileInfo == null ? 0 : fileInfo.hashCode());
         return result;
     }
 
@@ -218,20 +215,6 @@ public class AcquisitionFile {
                 return false;
             }
         } else if (!acqDate.equals(other.acqDate)) {
-            return false;
-        }
-        if (checksum == null) {
-            if (other.checksum != null) {
-                return false;
-            }
-        } else if (!checksum.equals(other.checksum)) {
-            return false;
-        }
-        if (checksumAlgorithm == null) {
-            if (other.checksumAlgorithm != null) {
-                return false;
-            }
-        } else if (!checksumAlgorithm.equals(other.checksumAlgorithm)) {
             return false;
         }
         if (fileInfo == null) {
