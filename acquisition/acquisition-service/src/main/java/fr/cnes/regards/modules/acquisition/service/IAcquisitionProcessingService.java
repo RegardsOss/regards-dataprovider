@@ -20,6 +20,7 @@ package fr.cnes.regards.modules.acquisition.service;
 
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
@@ -29,6 +30,7 @@ import org.springframework.data.domain.Pageable;
 
 import fr.cnes.regards.framework.module.rest.exception.ModuleException;
 import fr.cnes.regards.framework.modules.jobs.domain.JobInfo;
+import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.ProductSIPState;
 import fr.cnes.regards.modules.acquisition.domain.ProductsPage;
 import fr.cnes.regards.modules.acquisition.domain.chain.AcquisitionFileInfo;
@@ -92,12 +94,18 @@ public interface IAcquisitionProcessingService {
 
     /**
      * Patch an existing processing chain with new values for active and state
+     *
+     * @param chainId
+     * @param payload
+     * @return
      */
     AcquisitionProcessingChain patchStateAndMode(Long chainId, UpdateAcquisitionProcessingChain payload)
             throws ModuleException;
 
     /**
      * Patch several existing processing chain with provided values for active and state
+     * @param payload
+     * @return
      */
     List<AcquisitionProcessingChain> patchChainsStateAndMode(UpdateAcquisitionProcessingChains payload)
             throws ModuleException;
@@ -108,6 +116,19 @@ public interface IAcquisitionProcessingService {
      * @throws ModuleException if error occurs.
      */
     void deleteChain(Long id) throws ModuleException;
+
+    /**
+     * Delete products
+     * @param processingChain
+     * @param products
+     */
+    void deleteProducts(AcquisitionProcessingChain processingChain, Collection<Product> products);
+
+    /**
+     * Check if a {@link AcquisitionProcessingChain} deletion is pending
+     * @return boolean
+     */
+    public boolean isDeletionPending(AcquisitionProcessingChain chain);
 
     /**
      * Lock processing chain
@@ -130,7 +151,7 @@ public interface IAcquisitionProcessingService {
      * Start a chain manually
      * @param processingChainId identifier of the chain to start
      * @param session optional, replace the name of the acquisition session
-     * @param onlyErrors launch session only to retry generation errors.
+     * @param onlyErrors, launch session only to retry generation errors.
      * @return started processing chain
      * @throws ModuleException if error occurs!
      */
@@ -161,19 +182,24 @@ public interface IAcquisitionProcessingService {
     AcquisitionProcessingChain stopAndCleanChain(Long processingChainId) throws ModuleException;
 
     /**
-     * Delete all products of the given processing chain and session
-     * @param processingChainLabel
-     * @param session
-     * @throws ModuleException
+     * Schedule a deletion job for the given parameters.
+     * @param processingChainLabel chain label to delete products
+     * @param session Optional Session name to delete
+     * @param deleteChain True to delete the {@link AcquisitionProcessingChain} after products deletion.
+     * @throws ModuleException if error occurs!
      */
-    void deleteSessionProducts(String processingChainLabel, String session) throws ModuleException;
+    void scheduleProductDeletion(String processingChainLabel, Optional<String> session, boolean deleteChain)
+            throws ModuleException;
 
     /**
-     * Delete all products of the given processing chain
-     * @param processingChainLabel
-     * @throws ModuleException
+     * Schedule a deletion job for the given parameters.
+     * @param processingChainId chain id to delete products
+     * @param session Optional Session name to delete
+     * @param deleteChain True to delete the {@link AcquisitionProcessingChain} after products deletion.
+     * @throws ModuleException if error occurs!
      */
-    void deleteProducts(String processingChainLabel) throws ModuleException;
+    void scheduleProductDeletion(Long processingChainId, Optional<String> session, boolean deleteChain)
+            throws ModuleException;
 
     /**
      * Scan and register detected files for specified {@link AcquisitionProcessingChain}
@@ -204,6 +230,7 @@ public interface IAcquisitionProcessingService {
      * @param scanningDate
      * @param session
      * @param sessionOwner
+     * @return
      * @throws ModuleException
      */
     public long registerFiles(Iterator<Path> filePathsIt, AcquisitionFileInfo fileInfo,
@@ -214,12 +241,10 @@ public interface IAcquisitionProcessingService {
      * @param filePath path of the file to register
      * @param info related file info
      * @param scanningDate reference date used to launch scan plugin
-     * @param sessionOwner session owner
-     * @param session last active session
      * @return true if really registered
      */
-    boolean registerFile(Path filePath, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate,
-            String sessionOwner, String session) throws ModuleException;
+    boolean registerFile(Path filePath, AcquisitionFileInfo info, Optional<OffsetDateTime> scanningDate)
+            throws ModuleException;
 
     /**
      * Manage new registered file : prepare or fulfill products and schedule SIP generation as soon as possible

@@ -1,8 +1,5 @@
 package fr.cnes.regards.modules.acquisition.service.session;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import com.google.common.base.Strings;
 
 import fr.cnes.regards.modules.acquisition.domain.Product;
@@ -35,42 +32,12 @@ public class SessionChangingStateProbe {
 
     private ISipState productSIPState;
 
-    private final List<InitialFileSession> initialFileSessions = new ArrayList<>();
-
-    public static class InitialFileSession {
-
-        private final String fileSessionOwner;
-
-        private final String fileSession;
-
-        public InitialFileSession(String fileSessionOwner, String fileSession) {
-            this.fileSessionOwner = fileSessionOwner;
-            this.fileSession = fileSession;
-        }
-
-        public String getFileSessionOwner() {
-            return fileSessionOwner;
-        }
-
-        public String getFileSession() {
-            return fileSession;
-        }
-    }
-
     public void addUpdatedProduct(Product updatedProduct) {
         ingestionChain = updatedProduct.getProcessingChain().getLabel();
         session = updatedProduct.getSession();
         sessionOwner = updatedProduct.getProcessingChain().getLabel();
         productState = updatedProduct.getState();
         productSIPState = updatedProduct.getSipState();
-    }
-
-    public void addFileSessionSwitch(String sessionOwner, String session) {
-        initialFileSessions.add(new InitialFileSession(sessionOwner, session));
-    }
-
-    public List<InitialFileSession> getInitialFileSessions() {
-        return initialFileSessions;
     }
 
     public static SessionChangingStateProbe build(Product initialProduct) {

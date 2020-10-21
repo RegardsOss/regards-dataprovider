@@ -1,6 +1,5 @@
 package fr.cnes.regards.modules.acquisition.service.session;
 
-import java.util.List;
 import java.util.Optional;
 
 import javax.annotation.PostConstruct;
@@ -13,7 +12,6 @@ import org.springframework.stereotype.Service;
 import fr.cnes.regards.modules.acquisition.domain.Product;
 import fr.cnes.regards.modules.acquisition.domain.ProductSIPState;
 import fr.cnes.regards.modules.acquisition.domain.ProductState;
-import fr.cnes.regards.modules.acquisition.service.session.SessionChangingStateProbe.InitialFileSession;
 import fr.cnes.regards.modules.ingest.domain.sip.ISipState;
 import fr.cnes.regards.modules.ingest.domain.sip.SIPState;
 import fr.cnes.regards.modules.sessionmanager.client.ISessionNotificationClient;
@@ -133,18 +131,6 @@ public class SessionNotifier {
             }
             notifyIncrementSession(probe.getIngestionChain(), probe.getSession(), probe.getProductState(),
                                    probe.getProductSIPState());
-        }
-    }
-
-    public void notifyFileChangeSession(SessionChangingStateProbe probe) {
-        List<InitialFileSession> switches = probe.getInitialFileSessions();
-        if (!switches.isEmpty()) {
-            for (InitialFileSession ifs : switches) {
-                notifyDecrementSession(ifs.getFileSessionOwner(), ifs.getFileSession(),
-                                       SessionProductPropertyEnum.PROPERTY_FILES_ACQUIRED, 1L);
-                notifyIncrementSession(probe.getSessionOwner(), probe.getSession(),
-                                       SessionProductPropertyEnum.PROPERTY_FILES_ACQUIRED, 1L);
-            }
         }
     }
 

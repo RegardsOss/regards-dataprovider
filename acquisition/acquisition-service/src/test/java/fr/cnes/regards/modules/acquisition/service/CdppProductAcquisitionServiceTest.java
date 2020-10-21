@@ -51,9 +51,9 @@ import fr.cnes.regards.framework.modules.jobs.domain.JobParameter;
 import fr.cnes.regards.framework.modules.plugins.dao.IPluginConfigurationRepository;
 import fr.cnes.regards.framework.modules.plugins.domain.PluginConfiguration;
 import fr.cnes.regards.framework.modules.plugins.domain.parameter.IPluginParam;
-import fr.cnes.regards.framework.oais.urn.DataType;
+import fr.cnes.regards.framework.modules.plugins.service.IPluginService;
+import fr.cnes.regards.framework.urn.DataType;
 import fr.cnes.regards.framework.utils.plugins.PluginParameterTransformer;
-import fr.cnes.regards.framework.utils.plugins.PluginUtils;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionFileInfoRepository;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionFileRepository;
 import fr.cnes.regards.modules.acquisition.dao.IAcquisitionProcessingChainRepository;
@@ -170,7 +170,7 @@ public class CdppProductAcquisitionServiceTest extends AbstractMultitenantServic
                 .set(IPluginParam.build(GlobDiskScanning.FIELD_DIRS,
                                         PluginParameterTransformer.toJson(Arrays.asList(TARGET_DATA_PATH.toString()))));
 
-        PluginConfiguration scanPlugin = PluginUtils.getPluginConfiguration(parameters, GlobDiskScanning.class);
+        PluginConfiguration scanPlugin = PluginConfiguration.build(GlobDiskScanning.class, null, parameters);
         scanPlugin.setIsActive(true);
         scanPlugin.setLabel("Scan plugin RAWDATA" + Math.random());
         fileInfo.setScanPlugin(scanPlugin);
@@ -190,7 +190,7 @@ public class CdppProductAcquisitionServiceTest extends AbstractMultitenantServic
                                                                  .toJson(Arrays.asList(TARGET_BROWSE_PATH.toString()))),
                                       IPluginParam.build(GlobDiskScanning.FIELD_GLOB, "*B.png"));
 
-        scanPlugin = PluginUtils.getPluginConfiguration(parameters, GlobDiskScanning.class);
+        scanPlugin = PluginConfiguration.build(GlobDiskScanning.class, null, parameters);
         scanPlugin.setIsActive(true);
         scanPlugin.setLabel("Scan plugin QUICKLOOK_SD" + Math.random());
         fileInfo.setScanPlugin(scanPlugin);
@@ -210,7 +210,7 @@ public class CdppProductAcquisitionServiceTest extends AbstractMultitenantServic
                                                                  .toJson(Arrays.asList(TARGET_BROWSE_PATH.toString()))),
                                       IPluginParam.build(GlobDiskScanning.FIELD_GLOB, "*C.png"));
 
-        scanPlugin = PluginUtils.getPluginConfiguration(parameters, GlobDiskScanning.class);
+        scanPlugin = PluginConfiguration.build(GlobDiskScanning.class, null, parameters);
         scanPlugin.setIsActive(true);
         scanPlugin.setLabel("Scan plugin QUICKLOOK_MD" + Math.random());
         fileInfo.setScanPlugin(scanPlugin);
@@ -218,22 +218,22 @@ public class CdppProductAcquisitionServiceTest extends AbstractMultitenantServic
         processingChain.addFileInfo(fileInfo);
 
         // Validation
-        PluginConfiguration validationPlugin = PluginUtils.getPluginConfiguration(Sets.newHashSet(),
-                                                                                  DefaultFileValidation.class);
+        PluginConfiguration validationPlugin = PluginConfiguration.build(DefaultFileValidation.class, null,
+                                                                         new HashSet<IPluginParam>());
         validationPlugin.setIsActive(true);
         validationPlugin.setLabel("Validation plugin" + Math.random());
         processingChain.setValidationPluginConf(validationPlugin);
 
         // Product
-        PluginConfiguration productPlugin = PluginUtils
-                .getPluginConfiguration(Sets.newHashSet(), Arcad3IsoprobeDensiteProductPlugin.class);
+        PluginConfiguration productPlugin = PluginConfiguration.build(Arcad3IsoprobeDensiteProductPlugin.class, null,
+                                                                      new HashSet<IPluginParam>());
         productPlugin.setIsActive(true);
         productPlugin.setLabel("Product plugin" + Math.random());
         processingChain.setProductPluginConf(productPlugin);
 
         // SIP generation
-        PluginConfiguration sipGenPlugin = PluginUtils.getPluginConfiguration(Sets.newHashSet(),
-                                                                              DefaultSIPGeneration.class);
+        PluginConfiguration sipGenPlugin = PluginConfiguration.build(DefaultSIPGeneration.class, null,
+                                                                     new HashSet<IPluginParam>());
         sipGenPlugin.setIsActive(true);
         sipGenPlugin.setLabel("SIP generation plugin" + Math.random());
         processingChain.setGenerateSipPluginConf(sipGenPlugin);
@@ -377,28 +377,5 @@ public class CdppProductAcquisitionServiceTest extends AbstractMultitenantServic
         }
 
         notificationClient.debugSession();
-    }
-
-    /**
-     * First, we scan files in a session ... and we manage them in another!
-     */
-    @Test
-    public void twoStepAcquisitionTest() throws IOException, ModuleException {
-        // Prepare data
-        FileUtils.copyDirectory(SRC_DATA_PATH.toFile(), TARGET_DATA_PATH.toFile(), false);
-        FileUtils.copyDirectory(SRC_BROWSE_PATH.toFile(), TARGET_BROWSE_PATH.toFile(), false);
-
-        AcquisitionProcessingChain processingChain = createProcessingChain();
-
-        // Just scan in first session
-        String session1 = "session1";
-        processingService.scanAndRegisterFiles(processingChain, session1);
-
-        // Do all stuff in second session
-        String session2 = "session2";
-        doAcquire(processingChain, session2, true);
-
-        Assert.assertTrue(assertSession(processingChain.getLabel(), session1, 0L, null, null, null));
-        Assert.assertTrue(assertSession(processingChain.getLabel(), session2, 3L, 0L, null, 1L));
     }
 }

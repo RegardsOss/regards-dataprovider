@@ -82,8 +82,7 @@ public class AcquisitionFileControllerIT extends AbstractRegardsTransactionalIT 
         Path basePath = Paths.get("src", "test", "resources", "input");
         for (int i = 1; i < 3; i++) {
             Path file1 = basePath.resolve("data_" + i + ".txt");
-            processingService.registerFile(file1, processingChain.getFileInfos().iterator().next(), Optional.empty(),
-                                           "sessionOwner", "session");
+            processingService.registerFile(file1, processingChain.getFileInfos().iterator().next(), Optional.empty());
         }
     }
 
